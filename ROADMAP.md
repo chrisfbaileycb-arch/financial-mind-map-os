@@ -17,10 +17,9 @@ The `sync_accounts()` function currently simulates data retrieval. We need to in
 - **Action:** Implement OAuth flow for bank connections.
 - **Action:** Map incoming transaction data to the PII-hashed SQLite schema.
 
-### B. LLM Integration for Categorization
-Descriptions are currently tokenized. We should integrate a local or secure API-based LLM to categorize transactions into the Three-Bucket Strategy automatically.
-- **Action:** Implement a lightweight classification prompt.
-- **Action:** Ensure the LLM only receives tokenized or non-PII data to maintain the privacy-sovereign mandate.
+### B. Paycheck-to-Bill Cash Flow Orchestrator
+The backend logic is built, but it needs to be wired into the Sync Engine.
+- **Action:** Connect the `src/cashflow` module to the Action Report Loop so users are explicitly alerted when a bill must be paid from their *current* paycheck to avoid late fees.
 
 ## 3. Mid-Term Development (Phase 2: The "Killer" Features)
 
@@ -29,16 +28,22 @@ The predictive recurring fee detection needs an algorithm to identify patterns.
 - **Action:** Build a heuristic model that flags identical amounts charged on regular intervals (e.g., every 30 days).
 - **Action:** Integrate with the Action Report Loop to trigger "Cancel?" alerts.
 
-### B. Shared Vigilance
-The household member relationship graph needs to track spending limits and detect spikes.
-- **Action:** Implement a baseline spending average per member.
-- **Action:** Create anomaly detection for transactions exceeding 2 standard deviations from the baseline.
+### B. Credit Report & Affiliate Marketplace (Monetization Engine)
+This is the core revenue driver for the platform.
+- **Action:** Integrate the `src/credit` module with official free credit report APIs.
+- **Action:** Expand the `src/marketplace` catalog. The system will read the user's financial state locally (e.g., high-interest debt, young demographic) and display highly relevant affiliate links (LendingTree, Acorns, Stash) without ever sending user data to the affiliate.
 
 ## 4. Long-Term Vision (Phase 3: User Interface)
 
-Currently, the system is a backend engine. It needs a frontend for the Action Report Loop.
-- **Recommendation:** Build a **Tauri + React/Svelte** desktop application. Tauri aligns perfectly with the "Local-first" and "privacy-sovereign" ethos, allowing the app to run natively on the user's machine without relying on a cloud server for the UI.
-- **Alternative:** A local web server (FastAPI + React) that the user accesses via `localhost:8000`.
+Currently, the system is a backend engine. It needs a frontend that brings the "Mind-Map" concept to life.
+
+### A. The Obsidian-Style Visual Mind Map
+The `src/visualization` module generates the graph data. We need a frontend to render it.
+- **Action:** Build a full-screen, interactive D3.js or Cytoscape.js graph where users can literally "see" their money flowing from income, into accounts, and out to bills/investments.
+- **Mobile First:** Ensure the graph is navigable on mobile devices.
+
+### B. App Framework
+- **Recommendation:** Build a **Tauri + React/Svelte** desktop/mobile application. Tauri aligns perfectly with the "Local-first" and "privacy-sovereign" ethos, allowing the app to run natively on the user's machine without relying on a cloud server for the UI.
 
 ## 5. Strategic Recommendations for Expo Proxy / Signal Holdings
 
@@ -49,4 +54,4 @@ This application is not just a personal tool; it has immense potential as a whit
 
 ## Conclusion
 
-The foundation is now securely stored in the repository. The next move is to decide whether to focus on the **Plaid integration** (to get real data flowing) or the **User Interface** (to visualize the Action Report Loop).
+The foundation is now securely stored in the repository. The next move is to decide whether to focus on the **Plaid integration** (to get real data flowing) or the **Visual Mind-Map UI** (to show investors/users what the experience will look like).
