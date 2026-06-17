@@ -13,7 +13,7 @@ User → Action Report → [Approve/Deny/Snooze]
                      ↘        ↓        ↙
                     SQLite (PII-Hashed)
                           ↓
-                Visual Mind-Map UI (Obsidian-style)
+                Visual Mind-Map UI (Interactive)
                           ↓
           Paycheck-to-Bill Cash Flow Orchestrator
 ```
@@ -30,7 +30,7 @@ User → Action Report → [Approve/Deny/Snooze]
 - **Paycheck-to-Bill Alignment:** Automatically maps upcoming bills against user paycheck cycles (e.g., 15th and 30th). Alerts users if a specific bill must be paid from the *current* paycheck to avoid late fees before the *next* paycheck arrives.
 
 ### 3. Visual Mind-Map Interface
-- **Obsidian-Style Visualization:** A full-screen, node-based interactive map of the user's financial life.
+- **Interactive Visualization:** A full-screen, node-based interactive map of the user's financial life.
 - **Mobile Full-Screen:** Designed to be viewed comprehensively on mobile devices, allowing visual thinkers to literally "see" their money flow, liabilities, and assets interconnected.
 
 ### 4. Financial Health & Monetization Engine

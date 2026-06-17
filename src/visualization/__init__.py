@@ -1,7 +1,7 @@
 """
 Visual Mind-Map Interface
 
-Obsidian-style node-based visualization of the user's financial life.
+Interactive node-based visualization of the user's financial life.
 Designed for full-screen mobile viewing so visual thinkers can literally
 "see" their money flow, liabilities, and assets interconnected.
 

@@ -37,7 +37,7 @@ This is the core revenue driver for the platform.
 
 Currently, the system is a backend engine. It needs a frontend that brings the "Mind-Map" concept to life.
 
-### A. The Obsidian-Style Visual Mind Map
+### A. The Interactive Visual Mind Map
 The `src/visualization` module generates the graph data. We need a frontend to render it.
 - **Action:** Build a full-screen, interactive D3.js or Cytoscape.js graph where users can literally "see" their money flowing from income, into accounts, and out to bills/investments.
 - **Mobile First:** Ensure the graph is navigable on mobile devices.
