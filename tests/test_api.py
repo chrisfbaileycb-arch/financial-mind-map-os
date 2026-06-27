@@ -132,6 +132,14 @@ def test_edit_account(client):
     assert updated["balance"] == 4321.0
 
 
+def test_networth_endpoint(client):
+    client.post("/api/sync")  # records a snapshot
+    data = client.get("/api/networth").json()
+    assert data["summary"]["total"] > 0
+    assert "BUCKET_TAX" in data["summary"]["by_bucket"]
+    assert len(data["history"]) > 0
+
+
 def test_budgets_endpoints(client):
     resp = client.put("/api/budgets", json={"category": "groceries", "monthly_limit": 400})
     assert resp.status_code == 200

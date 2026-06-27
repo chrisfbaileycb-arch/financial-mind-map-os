@@ -214,6 +214,19 @@ def migrate(conn: sqlite3.Connection | None = None) -> None:
             """
         )
 
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS balance_snapshots (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                date TEXT NOT NULL UNIQUE,
+                total REAL NOT NULL,
+                bucket_tax REAL DEFAULT 0.0,
+                bucket_taxable REAL DEFAULT 0.0,
+                bucket_free REAL DEFAULT 0.0
+            )
+            """
+        )
+
         # --- Action report loop ----------------------------------------
         cur.execute(
             """
@@ -588,6 +601,58 @@ def update_goal(conn: sqlite3.Connection, goal_id: int, **fields: Any) -> None:
 
 def get_goal(conn: sqlite3.Connection, goal_id: int) -> sqlite3.Row | None:
     return conn.execute("SELECT * FROM goals WHERE id = ?", (goal_id,)).fetchone()
+
+
+# --- Net worth -------------------------------------------------------------
+
+
+def net_worth_summary(conn: sqlite3.Connection) -> dict:
+    """Current net worth as a total and a breakdown by tax bucket."""
+    rows = conn.execute(
+        """
+        SELECT COALESCE(bucket_type, 'UNBUCKETED') AS bucket,
+               ROUND(SUM(balance), 2) AS total
+        FROM accounts
+        GROUP BY bucket
+        """
+    ).fetchall()
+    by_bucket = {r["bucket"]: r["total"] for r in rows}
+    total = round(sum(by_bucket.values()), 2)
+    return {"total": total, "by_bucket": by_bucket}
+
+
+def record_balance_snapshot(conn: sqlite3.Connection, snapshot_date: str) -> None:
+    """Record (or replace) the net-worth snapshot for a given date."""
+    summary = net_worth_summary(conn)
+    by_bucket = summary["by_bucket"]
+    conn.execute(
+        """
+        INSERT INTO balance_snapshots (date, total, bucket_tax, bucket_taxable, bucket_free)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(date) DO UPDATE SET
+            total = excluded.total,
+            bucket_tax = excluded.bucket_tax,
+            bucket_taxable = excluded.bucket_taxable,
+            bucket_free = excluded.bucket_free
+        """,
+        (
+            snapshot_date,
+            summary["total"],
+            by_bucket.get("BUCKET_TAX", 0.0),
+            by_bucket.get("BUCKET_TAXABLE", 0.0),
+            by_bucket.get("BUCKET_FREE", 0.0),
+        ),
+    )
+    conn.commit()
+
+
+def get_balance_snapshots(
+    conn: sqlite3.Connection, *, limit: int = 24
+) -> list[sqlite3.Row]:
+    rows = conn.execute(
+        "SELECT * FROM balance_snapshots ORDER BY date DESC LIMIT ?", (limit,)
+    ).fetchall()
+    return list(reversed(rows))  # oldest -> newest
 
 
 def delete_goal(conn: sqlite3.Connection, goal_id: int) -> None:

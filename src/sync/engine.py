@@ -168,6 +168,9 @@ def heartbeat(
         n_household = check_household_vigilance(conn, report_id, today)
         n_budget = check_budgets(conn, report_id, today)
 
+        # Record a net-worth snapshot for the day (bookkeeping, not an alert).
+        db.record_balance_snapshot(conn, today.isoformat())
+
         total_items = n_subs + n_bills + n_household + n_budget
         summary = (
             f"{total_items} action item(s): {n_bills} bill, "

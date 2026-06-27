@@ -45,6 +45,9 @@ def _reset(conn: sqlite3.Connection) -> None:
         "action_items",
         "action_reports",
         "sync_log",
+        "budgets",
+        "goals",
+        "balance_snapshots",
     ):
         conn.execute(f"DELETE FROM {table}")
     conn.commit()
@@ -198,6 +201,29 @@ def seed_database(
             description_tokens="payroll deposit",
             status="APPROVED",
         )
+
+        # --- Net-worth history (so the trend chart isn't empty) --------
+        summary = db.net_worth_summary(conn)
+        total = summary["total"]
+        by = summary["by_bucket"]
+        for i in range(6, -1, -1):
+            factor = 1.0 - 0.02 * i  # ~12% growth over six months
+            snap_date = _months_back(today, i)
+            conn.execute(
+                """
+                INSERT INTO balance_snapshots
+                    (date, total, bucket_tax, bucket_taxable, bucket_free)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(date) DO UPDATE SET total = excluded.total
+                """,
+                (
+                    snap_date.isoformat(),
+                    round(total * factor, 2),
+                    round(by.get("BUCKET_TAX", 0.0) * factor, 2),
+                    round(by.get("BUCKET_TAXABLE", 0.0) * factor, 2),
+                    round(by.get("BUCKET_FREE", 0.0) * factor, 2),
+                ),
+            )
 
         conn.commit()
         print("Seed complete: sample household, accounts, bills and transactions loaded.")

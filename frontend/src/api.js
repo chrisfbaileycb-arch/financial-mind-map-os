@@ -37,6 +37,7 @@ export const api = {
     return request(`/transactions?${p.toString()}`)
   },
   spending: () => request('/spending'),
+  networth: () => request('/networth'),
   budgets: () => request('/budgets'),
   goals: () => request('/goals'),
 

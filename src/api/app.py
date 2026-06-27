@@ -148,6 +148,13 @@ def create_app() -> FastAPI:
     def list_members(conn: sqlite3.Connection = Depends(get_db)) -> list[dict]:
         return db.coerce_rows(db.get_members(conn))
 
+    @app.get("/api/networth")
+    def networth(conn: sqlite3.Connection = Depends(get_db)) -> dict:
+        return {
+            "summary": db.net_worth_summary(conn),
+            "history": db.coerce_rows(db.get_balance_snapshots(conn)),
+        }
+
     # --- Budgets ------------------------------------------------------
     @app.get("/api/budgets")
     def list_budgets(conn: sqlite3.Connection = Depends(get_db)) -> list[dict]:
