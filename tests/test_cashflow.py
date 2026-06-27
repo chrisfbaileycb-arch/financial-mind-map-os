@@ -101,6 +101,23 @@ def test_analyze_bills_from_db(seeded_conn):
     assert "Internet" not in labels
 
 
+def test_cashflow_timeline(seeded_conn):
+    """The timeline mixes paydays and bills with a running balance."""
+    from src.cashflow import cashflow_timeline
+
+    tl = cashflow_timeline(seeded_conn, date(2026, 6, 27), horizon_days=45)
+    assert tl["start_balance"] == 10800.0  # checking + savings (taxable)
+    kinds = {e["kind"] for e in tl["events"]}
+    assert kinds == {"payday", "bill"}
+    # Auto-pay bills are excluded from the projection.
+    assert all(e["label"] != "Internet" for e in tl["events"])
+    # Running balance is attached and starts from start + first event.
+    assert "balance" in tl["events"][0]
+    # Events are chronologically ordered.
+    dates = [e["date"] for e in tl["events"]]
+    assert dates == sorted(dates)
+
+
 if __name__ == "__main__":
     test_next_paycheck_calculation()
     test_bill_before_paycheck_triggers_pay_now()

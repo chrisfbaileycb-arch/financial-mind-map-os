@@ -233,3 +233,83 @@ def analyze_bills_from_db(conn: sqlite3.Connection, today: date) -> list[BillAle
     alerts = list(best_by_bill.values())
     alerts.sort(key=lambda a: (priority.get(a.alert_type, 99), a.days_until_due))
     return alerts
+
+
+def cashflow_timeline(
+    conn: sqlite3.Connection, today: date, *, horizon_days: int = 45
+) -> dict:
+    """Project paydays and bills over the coming weeks with a running balance.
+
+    Starts from the current taxable-account balance and walks each dated event
+    (paychecks add, bills subtract) so the UI can warn when the balance dips
+    below zero before the next paycheck.
+    """
+    from src import db
+
+    horizon = today + timedelta(days=horizon_days)
+    schedules = db.get_paycheck_schedules(conn)
+    all_pay_days = sorted(
+        {
+            d
+            for s in schedules
+            for d in (s["pay_day_1"], s["pay_day_2"])
+            if d is not None
+        }
+    )
+    next_pay = get_next_paycheck(today, all_pay_days) if all_pay_days else None
+
+    events: list[dict] = []
+
+    for bill in load_bills(conn):
+        if bill.auto_pay:
+            continue
+        due = _resolve_due_date(today, bill.due_day)
+        if today <= due <= horizon:
+            alert = "PAY_NOW" if next_pay and due < next_pay else "UPCOMING"
+            events.append(
+                {
+                    "date": due.isoformat(),
+                    "kind": "bill",
+                    "label": bill.label or bill.merchant_hash[:8],
+                    "amount": -bill.amount,
+                    "alert_type": alert,
+                }
+            )
+
+    for sched in schedules:
+        pay_days = [sched["pay_day_1"]]
+        if sched["pay_day_2"] is not None:
+            pay_days.append(sched["pay_day_2"])
+        amount = sched["pay_amount"] or 0.0
+        cursor = today
+        for _ in range(12):  # safety bound on iterations
+            nxt = get_next_paycheck(cursor, pay_days)
+            if nxt > horizon:
+                break
+            events.append(
+                {
+                    "date": nxt.isoformat(),
+                    "kind": "payday",
+                    "label": "Paycheck",
+                    "amount": amount,
+                }
+            )
+            cursor = nxt + timedelta(days=1)
+
+    # Income lands before bills on the same day; then chronological.
+    kind_rank = {"payday": 0, "bill": 1}
+    events.sort(key=lambda e: (e["date"], kind_rank.get(e["kind"], 9)))
+
+    summary = db.net_worth_summary(conn)
+    balance = summary["by_bucket"].get("BUCKET_TAXABLE", 0.0)
+    lowest = balance
+    for event in events:
+        balance = round(balance + event["amount"], 2)
+        event["balance"] = balance
+        lowest = min(lowest, balance)
+
+    return {
+        "start_balance": summary["by_bucket"].get("BUCKET_TAXABLE", 0.0),
+        "lowest_balance": round(lowest, 2),
+        "events": events,
+    }

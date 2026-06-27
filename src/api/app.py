@@ -148,6 +148,16 @@ def create_app() -> FastAPI:
     def list_members(conn: sqlite3.Connection = Depends(get_db)) -> list[dict]:
         return db.coerce_rows(db.get_members(conn))
 
+    @app.get("/api/cashflow")
+    def cashflow(
+        horizon_days: int = 45, conn: sqlite3.Connection = Depends(get_db)
+    ) -> dict:
+        from datetime import date as _date
+
+        from src.cashflow import cashflow_timeline
+
+        return cashflow_timeline(conn, _date.today(), horizon_days=horizon_days)
+
     @app.get("/api/networth")
     def networth(conn: sqlite3.Connection = Depends(get_db)) -> dict:
         return {

@@ -7,10 +7,12 @@ import TransactionsView from './components/TransactionsView.jsx'
 import SpendingView from './components/SpendingView.jsx'
 import ManageView from './components/ManageView.jsx'
 import NetWorthView from './components/NetWorthView.jsx'
+import CashFlowView from './components/CashFlowView.jsx'
 
 const VIEWS = [
   { key: 'map', label: 'Map' },
   { key: 'networth', label: 'Net Worth' },
+  { key: 'cashflow', label: 'Cash Flow' },
   { key: 'transactions', label: 'Transactions' },
   { key: 'spending', label: 'Spending' },
   { key: 'manage', label: 'Manage' },
@@ -123,6 +125,7 @@ export default function App() {
       )}
 
       {view === 'networth' && <NetWorthView />}
+      {view === 'cashflow' && <CashFlowView />}
       {view === 'transactions' && <TransactionsView />}
       {view === 'spending' && <SpendingView />}
       {view === 'manage' && <ManageView />}

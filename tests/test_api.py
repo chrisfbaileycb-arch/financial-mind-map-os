@@ -132,6 +132,12 @@ def test_edit_account(client):
     assert updated["balance"] == 4321.0
 
 
+def test_cashflow_endpoint(client):
+    data = client.get("/api/cashflow").json()
+    assert "start_balance" in data and "events" in data
+    assert all("balance" in e for e in data["events"])
+
+
 def test_networth_endpoint(client):
     client.post("/api/sync")  # records a snapshot
     data = client.get("/api/networth").json()

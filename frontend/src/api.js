@@ -38,6 +38,7 @@ export const api = {
   },
   spending: () => request('/spending'),
   networth: () => request('/networth'),
+  cashflow: () => request('/cashflow'),
   budgets: () => request('/budgets'),
   goals: () => request('/goals'),
 
