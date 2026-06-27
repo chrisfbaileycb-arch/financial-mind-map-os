@@ -144,6 +144,24 @@ def check_budgets(conn: sqlite3.Connection, report_id: int, today: date) -> int:
     return count
 
 
+def advance_goals(conn: sqlite3.Connection, report_id: int, today: date) -> int:
+    """Apply monthly goal contributions and celebrate newly funded goals."""
+    print(f"[{datetime.now().isoformat()}] Applying goal contributions...")
+    funded = db.advance_goals(conn, today)
+    for goal in funded:
+        db.add_action_item(
+            conn,
+            report_id,
+            item_type="GOAL_FUNDED",
+            description=f"Goal reached: '{goal['label']}' is fully funded "
+            f"(${goal['target_amount']:.2f}). 🎉",
+            amount=goal["target_amount"],
+            urgency="LOW",
+        )
+    print(f"  -> {len(funded)} goal(s) fully funded.")
+    return len(funded)
+
+
 def heartbeat(
     conn: sqlite3.Connection | None = None, today: date | None = None
 ) -> dict:
@@ -167,15 +185,16 @@ def heartbeat(
         n_bills = run_cashflow(conn, report_id, today)
         n_household = check_household_vigilance(conn, report_id, today)
         n_budget = check_budgets(conn, report_id, today)
+        n_goals = advance_goals(conn, report_id, today)
 
         # Record a net-worth snapshot for the day (bookkeeping, not an alert).
         db.record_balance_snapshot(conn, today.isoformat())
 
-        total_items = n_subs + n_bills + n_household + n_budget
+        total_items = n_subs + n_bills + n_household + n_budget + n_goals
         summary = (
             f"{total_items} action item(s): {n_bills} bill, "
-            f"{n_subs} subscription, {n_household} household, {n_budget} budget. "
-            f"Each requires Approve/Deny/Snooze."
+            f"{n_subs} subscription, {n_household} household, {n_budget} budget, "
+            f"{n_goals} goal. Each requires Approve/Deny/Snooze."
         )
         db.update_report_summary(conn, report_id, summary)
         db.finish_sync(conn, sync_id, status="COMPLETE", items_processed=total_items)
@@ -188,6 +207,7 @@ def heartbeat(
             "bills": n_bills,
             "household": n_household,
             "budget": n_budget,
+            "goals": n_goals,
             "total_items": total_items,
         }
     except Exception as exc:  # pragma: no cover - defensive logging path

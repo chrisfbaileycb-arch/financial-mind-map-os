@@ -114,6 +114,11 @@ export default function ManageView() {
               <input className="cat-input inline-num" type="number" defaultValue={g.current_amount}
                 onBlur={(e) => wrap(api.updateGoal)(g.id, { current_amount: Number(e.target.value) })} />
               / ${g.target_amount}
+              · +$
+              <input className="cat-input small-num" type="number" defaultValue={g.monthly_contribution}
+                title="monthly contribution"
+                onBlur={(e) => wrap(api.updateGoal)(g.id, { monthly_contribution: Number(e.target.value) })} />
+              /mo
               <button className="btn ghost small" onClick={() => wrap(api.deleteGoal)(g.id)}>Remove</button>
             </li>
           ))}
@@ -223,7 +228,9 @@ function BudgetForm({ onAdd }) {
 }
 
 function GoalForm({ onAdd }) {
-  const [v, set, reset] = useForm({ label: '', target_amount: '', current_amount: '', account_id: '' })
+  const [v, set, reset] = useForm({
+    label: '', target_amount: '', current_amount: '', account_id: '', monthly_contribution: '',
+  })
   return (
     <form className="add-form" onSubmit={(e) => {
       e.preventDefault()
@@ -232,11 +239,13 @@ function GoalForm({ onAdd }) {
         target_amount: Number(v.target_amount),
         current_amount: Number(v.current_amount) || 0,
         account_id: v.account_id || null,
+        monthly_contribution: Number(v.monthly_contribution) || 0,
       }).then(reset)
     }}>
       <input placeholder="goal" value={v.label} onChange={set('label')} required />
       <input placeholder="target $" type="number" value={v.target_amount} onChange={set('target_amount')} required />
       <input placeholder="current $" type="number" value={v.current_amount} onChange={set('current_amount')} />
+      <input placeholder="$/mo" type="number" value={v.monthly_contribution} onChange={set('monthly_contribution')} />
       <input placeholder="funding account id" value={v.account_id} onChange={set('account_id')} />
       <button className="btn primary small" type="submit">Add</button>
     </form>

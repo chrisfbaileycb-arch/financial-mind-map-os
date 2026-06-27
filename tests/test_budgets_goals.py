@@ -68,6 +68,36 @@ def test_goal_crud_and_map_node(conn):
     assert db.get_goals(conn) == []
 
 
+def test_goal_monthly_contribution_advances_once_per_month(conn):
+    gid = db.insert_goal(conn, "Trip", 1000, current_amount=400, monthly_contribution=200)
+    funded = db.advance_goals(conn, date(2026, 6, 1))
+    assert db.get_goal(conn, gid)["current_amount"] == 600
+    assert funded == []  # not yet at target
+    # Same month again -> no double contribution.
+    db.advance_goals(conn, date(2026, 6, 20))
+    assert db.get_goal(conn, gid)["current_amount"] == 600
+    # New month -> contributes again.
+    db.advance_goals(conn, date(2026, 7, 1))
+    assert db.get_goal(conn, gid)["current_amount"] == 800
+
+
+def test_goal_funded_is_reported(conn):
+    gid = db.insert_goal(conn, "Cushion", 1000, current_amount=900, monthly_contribution=200)
+    funded = db.advance_goals(conn, date(2026, 6, 1))
+    assert [g["id"] for g in funded] == [gid]
+    # Capped at target, not overshooting.
+    assert db.get_goal(conn, gid)["current_amount"] == 1000
+
+
+def test_heartbeat_celebrates_funded_goal(conn):
+    db.upsert_account(conn, db.hash_pii("a"), "Checking", "BUCKET_TAXABLE", 100)
+    db.insert_goal(conn, "Cushion", 500, current_amount=400, monthly_contribution=200)
+    summary = heartbeat(conn, today=date(2026, 6, 1))
+    assert summary["goals"] == 1
+    items = db.get_action_items(conn, summary["report_id"])
+    assert any(i["item_type"] == "GOAL_FUNDED" for i in items)
+
+
 def test_transaction_filters(conn):
     _debit(conn, -10, category="food", desc="chipotle burrito")
     _debit(conn, -20, category="gas", desc="shell oil")

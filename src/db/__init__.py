@@ -19,6 +19,7 @@ import hashlib
 import re
 import sqlite3
 from collections.abc import Iterable
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -209,10 +210,14 @@ def migrate(conn: sqlite3.Connection | None = None) -> None:
                 label TEXT NOT NULL,
                 target_amount REAL NOT NULL,
                 current_amount REAL DEFAULT 0.0,
-                account_hash TEXT
+                account_hash TEXT,
+                monthly_contribution REAL DEFAULT 0.0,
+                last_contributed TEXT
             )
             """
         )
+        _ensure_column(conn, "goals", "monthly_contribution", "monthly_contribution REAL DEFAULT 0.0")
+        _ensure_column(conn, "goals", "last_contributed", "last_contributed TEXT")
 
         cur.execute(
             """
@@ -571,16 +576,44 @@ def insert_goal(
     *,
     current_amount: float = 0.0,
     account_hash: str | None = None,
+    monthly_contribution: float = 0.0,
 ) -> int:
     cur = conn.execute(
         """
-        INSERT INTO goals (label, target_amount, current_amount, account_hash)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO goals
+            (label, target_amount, current_amount, account_hash, monthly_contribution)
+        VALUES (?, ?, ?, ?, ?)
         """,
-        (label, target_amount, current_amount, account_hash),
+        (label, target_amount, current_amount, account_hash, monthly_contribution),
     )
     conn.commit()
     return int(cur.lastrowid)
+
+
+def advance_goals(conn: sqlite3.Connection, today: date) -> list[sqlite3.Row]:
+    """Apply each goal's monthly contribution once per calendar month.
+
+    Returns the goals that became fully funded as a result of this run, so the
+    engine can celebrate them in the action report.
+    """
+    month = today.strftime("%Y-%m")
+    newly_funded: list[sqlite3.Row] = []
+    for goal in get_goals(conn):
+        contribution = goal["monthly_contribution"] or 0.0
+        if contribution <= 0 or goal["last_contributed"] == month:
+            continue
+        was_funded = (goal["current_amount"] or 0.0) >= goal["target_amount"]
+        new_amount = min(
+            goal["target_amount"], (goal["current_amount"] or 0.0) + contribution
+        )
+        conn.execute(
+            "UPDATE goals SET current_amount = ?, last_contributed = ? WHERE id = ?",
+            (new_amount, month, goal["id"]),
+        )
+        if not was_funded and new_amount >= goal["target_amount"]:
+            newly_funded.append(get_goal(conn, goal["id"]))
+    conn.commit()
+    return newly_funded
 
 
 def get_goals(conn: sqlite3.Connection) -> list[sqlite3.Row]:
@@ -588,7 +621,13 @@ def get_goals(conn: sqlite3.Connection) -> list[sqlite3.Row]:
 
 
 def update_goal(conn: sqlite3.Connection, goal_id: int, **fields: Any) -> None:
-    allowed = {"label", "target_amount", "current_amount", "account_hash"}
+    allowed = {
+        "label",
+        "target_amount",
+        "current_amount",
+        "account_hash",
+        "monthly_contribution",
+    }
     updates = {k: v for k, v in fields.items() if k in allowed and v is not None}
     if not updates:
         return

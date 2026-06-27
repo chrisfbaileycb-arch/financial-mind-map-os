@@ -202,6 +202,7 @@ def create_app() -> FastAPI:
             body.target_amount,
             current_amount=body.current_amount,
             account_hash=db.hash_pii(body.account_id) if body.account_id else None,
+            monthly_contribution=body.monthly_contribution,
         )
         return {"id": goal_id}
 

@@ -115,12 +115,14 @@ class GoalCreate(BaseModel):
     target_amount: float = Field(gt=0)
     current_amount: float = 0.0
     account_id: str | None = None  # raw id; hashed before storage
+    monthly_contribution: float = 0.0
 
 
 class GoalUpdate(BaseModel):
     label: str | None = None
     target_amount: float | None = None
     current_amount: float | None = None
+    monthly_contribution: float | None = None
 
 
 class CsvImportRequest(BaseModel):
