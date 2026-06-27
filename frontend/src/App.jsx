@@ -3,8 +3,19 @@ import { api } from './api.js'
 import MindMap from './components/MindMap.jsx'
 import ActionInbox from './components/ActionInbox.jsx'
 import ImportPanel from './components/ImportPanel.jsx'
+import TransactionsView from './components/TransactionsView.jsx'
+import SpendingView from './components/SpendingView.jsx'
+import ManageView from './components/ManageView.jsx'
+
+const VIEWS = [
+  { key: 'map', label: 'Map' },
+  { key: 'transactions', label: 'Transactions' },
+  { key: 'spending', label: 'Spending' },
+  { key: 'manage', label: 'Manage' },
+]
 
 export default function App() {
+  const [view, setView] = useState('map')
   const [graph, setGraph] = useState(null)
   const [report, setReport] = useState(null)
   const [items, setItems] = useState([])
@@ -64,13 +75,26 @@ export default function App() {
           <span className="logo">◈</span>
           <span>Financial Mind-Map OS</span>
         </div>
+        <nav className="nav">
+          {VIEWS.map((v) => (
+            <button
+              key={v.key}
+              className={`nav-btn ${view === v.key ? 'active' : ''}`}
+              onClick={() => setView(v.key)}
+            >
+              {v.label}
+            </button>
+          ))}
+        </nav>
         <div className="actions">
           <button className="btn ghost" onClick={() => setImportOpen(true)}>
             Import CSV
           </button>
-          <button className="btn ghost" onClick={() => setPanelOpen((o) => !o)}>
-            {panelOpen ? 'Hide' : 'Actions'}{pending.length ? ` (${pending.length})` : ''}
-          </button>
+          {view === 'map' && (
+            <button className="btn ghost" onClick={() => setPanelOpen((o) => !o)}>
+              {panelOpen ? 'Hide' : 'Actions'}{pending.length ? ` (${pending.length})` : ''}
+            </button>
+          )}
           <button className="btn primary" onClick={runSync} disabled={loading}>
             {loading ? 'Syncing…' : 'Run Sync'}
           </button>
@@ -79,26 +103,31 @@ export default function App() {
 
       {error && <div className="error-banner">{error}</div>}
 
-      <div className="layout">
-        <main className="map-area">
-          {graph ? (
-            <MindMap graph={graph} />
-          ) : (
-            <div className="placeholder">Loading your financial map…</div>
+      {view === 'map' && (
+        <div className="layout">
+          <main className="map-area">
+            {graph ? (
+              <MindMap graph={graph} />
+            ) : (
+              <div className="placeholder">Loading your financial map…</div>
+            )}
+          </main>
+          {panelOpen && (
+            <aside className="side-panel">
+              <ActionInbox report={report} items={items} onResolve={resolve} />
+            </aside>
           )}
-        </main>
+        </div>
+      )}
 
-        {panelOpen && (
-          <aside className="side-panel">
-            <ActionInbox report={report} items={items} onResolve={resolve} />
-          </aside>
-        )}
-      </div>
+      {view === 'transactions' && <TransactionsView />}
+      {view === 'spending' && <SpendingView />}
+      {view === 'manage' && <ManageView />}
 
       {importOpen && (
         <ImportPanel
           onClose={() => setImportOpen(false)}
-          onImported={load}
+          onImported={() => { load(); setImportOpen(false) }}
         />
       )}
     </div>
