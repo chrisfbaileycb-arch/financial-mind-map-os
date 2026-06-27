@@ -82,15 +82,34 @@ python -m src run
 ### Run the app (API + web UI)
 
 The web app is a React + D3 mind-map with an Approve/Deny/Snooze action inbox,
-served by the FastAPI backend.
+plus **Transactions**, **Spending**, and **Manage** views, served by the
+FastAPI backend.
+
+Fastest path — one command (install + build UI + seed + serve):
+
+```bash
+make demo            # then open http://127.0.0.1:8000
+```
+
+Or step by step:
 
 ```bash
 # 1. Build the frontend bundle (one time, or after UI changes)
-cd frontend && npm install && npm run build && cd ..
+cd frontend && npm install && npm run build && cd ..    # or: make ui
 
 # 2. Serve the API + UI on http://127.0.0.1:8000
-python -m src serve
+python -m src serve                                     # or: make serve
 ```
+
+The app has four views:
+
+- **Map** — the financial mind-map + the Approve/Deny/Snooze action inbox.
+- **Transactions** — categorize inline and split a charge across categories.
+- **Spending** — totals by month and by category.
+- **Manage** — add/edit accounts, bills, paycheck schedules, and members.
+
+Try it without your own data using the sample CSVs in [`examples/`](examples/)
+via **Import CSV**.
 
 For UI development with hot reload, run the API and Vite dev server in two
 terminals:
