@@ -191,6 +191,29 @@ def migrate(conn: sqlite3.Connection | None = None) -> None:
         )
         _ensure_column(conn, "bills", "label", "label TEXT")
 
+        # --- Budgets & goals -------------------------------------------
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS budgets (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                category TEXT NOT NULL UNIQUE,
+                monthly_limit REAL NOT NULL
+            )
+            """
+        )
+
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS goals (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                label TEXT NOT NULL,
+                target_amount REAL NOT NULL,
+                current_amount REAL DEFAULT 0.0,
+                account_hash TEXT
+            )
+            """
+        )
+
         # --- Action report loop ----------------------------------------
         cur.execute(
             """
@@ -370,6 +393,8 @@ def get_transactions(
     member_hash: str | None = None,
     since: str | None = None,
     only_debits: bool = False,
+    query: str | None = None,
+    category: str | None = None,
     limit: int | None = None,
 ) -> list[sqlite3.Row]:
     clauses: list[str] = []
@@ -382,6 +407,12 @@ def get_transactions(
         params.append(since)
     if only_debits:
         clauses.append("amount < 0")
+    if query:
+        clauses.append("description_tokens LIKE ?")
+        params.append(f"%{query.lower()}%")
+    if category:
+        clauses.append("category = ?")
+        params.append(category)
     where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
     limit_sql = f" LIMIT {int(limit)}" if limit else ""
     return list(
@@ -471,20 +502,97 @@ def spending_by_month(
     )
 
 
-def spending_by_category(conn: sqlite3.Connection) -> list[sqlite3.Row]:
-    """Total spending (debits) grouped by category."""
+def spending_by_category(
+    conn: sqlite3.Connection, *, since: str | None = None
+) -> list[sqlite3.Row]:
+    """Total spending (debits) grouped by category, optionally since a date."""
+    clause = "AND date >= ?" if since else ""
+    params = (since,) if since else ()
     return list(
         conn.execute(
-            """
+            f"""
             SELECT COALESCE(NULLIF(category, ''), 'uncategorized') AS category,
                    ROUND(SUM(-amount), 2) AS spent
             FROM transactions
-            WHERE amount < 0
+            WHERE amount < 0 {clause}
             GROUP BY category
             ORDER BY spent DESC
-            """
+            """,
+            params,
         )
     )
+
+
+# --- Budgets ---------------------------------------------------------------
+
+
+def upsert_budget(
+    conn: sqlite3.Connection, category: str, monthly_limit: float
+) -> None:
+    conn.execute(
+        """
+        INSERT INTO budgets (category, monthly_limit) VALUES (?, ?)
+        ON CONFLICT(category) DO UPDATE SET monthly_limit = excluded.monthly_limit
+        """,
+        (category, monthly_limit),
+    )
+    conn.commit()
+
+
+def get_budgets(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    return list(conn.execute("SELECT * FROM budgets ORDER BY category"))
+
+
+def delete_budget(conn: sqlite3.Connection, category: str) -> None:
+    conn.execute("DELETE FROM budgets WHERE category = ?", (category,))
+    conn.commit()
+
+
+# --- Goals -----------------------------------------------------------------
+
+
+def insert_goal(
+    conn: sqlite3.Connection,
+    label: str,
+    target_amount: float,
+    *,
+    current_amount: float = 0.0,
+    account_hash: str | None = None,
+) -> int:
+    cur = conn.execute(
+        """
+        INSERT INTO goals (label, target_amount, current_amount, account_hash)
+        VALUES (?, ?, ?, ?)
+        """,
+        (label, target_amount, current_amount, account_hash),
+    )
+    conn.commit()
+    return int(cur.lastrowid)
+
+
+def get_goals(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    return list(conn.execute("SELECT * FROM goals ORDER BY id"))
+
+
+def update_goal(conn: sqlite3.Connection, goal_id: int, **fields: Any) -> None:
+    allowed = {"label", "target_amount", "current_amount", "account_hash"}
+    updates = {k: v for k, v in fields.items() if k in allowed and v is not None}
+    if not updates:
+        return
+    set_sql = ", ".join(f"{k} = ?" for k in updates)
+    conn.execute(
+        f"UPDATE goals SET {set_sql} WHERE id = ?", (*updates.values(), goal_id)
+    )
+    conn.commit()
+
+
+def get_goal(conn: sqlite3.Connection, goal_id: int) -> sqlite3.Row | None:
+    return conn.execute("SELECT * FROM goals WHERE id = ?", (goal_id,)).fetchone()
+
+
+def delete_goal(conn: sqlite3.Connection, goal_id: int) -> None:
+    conn.execute("DELETE FROM goals WHERE id = ?", (goal_id,))
+    conn.commit()
 
 
 def upsert_subscription(

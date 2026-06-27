@@ -132,6 +132,38 @@ def test_edit_account(client):
     assert updated["balance"] == 4321.0
 
 
+def test_budgets_endpoints(client):
+    resp = client.put("/api/budgets", json={"category": "groceries", "monthly_limit": 400})
+    assert resp.status_code == 200
+    budgets = client.get("/api/budgets").json()
+    assert any(b["category"] == "groceries" and "spent" in b for b in budgets)
+    assert client.delete("/api/budgets/groceries").json()["deleted"] is True
+
+
+def test_goals_endpoints(client):
+    resp = client.post(
+        "/api/goals", json={"label": "Vacation", "target_amount": 5000, "current_amount": 1000}
+    )
+    assert resp.status_code == 201
+    goal_id = resp.json()["id"]
+    resp = client.patch(f"/api/goals/{goal_id}", json={"current_amount": 1500})
+    assert resp.status_code == 200 and resp.json()["current_amount"] == 1500
+    goals = client.get("/api/goals").json()
+    assert any(g["id"] == goal_id for g in goals)
+    # Goal shows up on the mind map.
+    graph = client.get("/api/graph").json()
+    assert any(n["type"] == "goal" for n in graph["nodes"])
+    assert client.delete(f"/api/goals/{goal_id}").json()["deleted"] is True
+
+
+def test_transaction_filter_endpoint(client):
+    all_txns = client.get("/api/transactions").json()
+    debit = next(t for t in all_txns if t["amount"] < 0)
+    client.patch(f"/api/transactions/{debit['id']}", json={"category": "uniquecat"})
+    filtered = client.get("/api/transactions?category=uniquecat").json()
+    assert len(filtered) == 1 and filtered[0]["id"] == debit["id"]
+
+
 def test_manual_bill_creation(client):
     resp = client.post(
         "/api/bills",

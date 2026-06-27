@@ -26,7 +26,10 @@ from src.api.schemas import (
     AccountUpdate,
     BillCreate,
     BillUpdate,
+    BudgetUpsert,
     CsvImportRequest,
+    GoalCreate,
+    GoalUpdate,
     MemberCreate,
     PaycheckScheduleCreate,
     ResolveRequest,
@@ -125,9 +128,14 @@ def create_app() -> FastAPI:
 
     @app.get("/api/transactions")
     def list_transactions(
-        limit: int = 200, conn: sqlite3.Connection = Depends(get_db)
+        limit: int = 200,
+        q: str | None = None,
+        category: str | None = None,
+        conn: sqlite3.Connection = Depends(get_db),
     ) -> list[dict]:
-        return db.coerce_rows(db.get_transactions(conn, limit=limit))
+        return db.coerce_rows(
+            db.get_transactions(conn, limit=limit, query=q, category=category)
+        )
 
     @app.get("/api/spending")
     def spending(conn: sqlite3.Connection = Depends(get_db)) -> dict:
@@ -139,6 +147,72 @@ def create_app() -> FastAPI:
     @app.get("/api/members")
     def list_members(conn: sqlite3.Connection = Depends(get_db)) -> list[dict]:
         return db.coerce_rows(db.get_members(conn))
+
+    # --- Budgets ------------------------------------------------------
+    @app.get("/api/budgets")
+    def list_budgets(conn: sqlite3.Connection = Depends(get_db)) -> list[dict]:
+        from datetime import date as _date
+
+        today = _date.today()
+        month_start = _date(today.year, today.month, 1).isoformat()
+        spent = {
+            r["category"]: r["spent"]
+            for r in db.spending_by_category(conn, since=month_start)
+        }
+        out = []
+        for b in db.get_budgets(conn):
+            row = dict(b)
+            row["spent"] = spent.get(b["category"], 0.0)
+            out.append(row)
+        return out
+
+    @app.put("/api/budgets")
+    def upsert_budget(
+        body: BudgetUpsert, conn: sqlite3.Connection = Depends(get_db)
+    ) -> dict:
+        db.upsert_budget(conn, body.category, body.monthly_limit)
+        return {"category": body.category, "monthly_limit": body.monthly_limit}
+
+    @app.delete("/api/budgets/{category}")
+    def remove_budget(
+        category: str, conn: sqlite3.Connection = Depends(get_db)
+    ) -> dict:
+        db.delete_budget(conn, category)
+        return {"category": category, "deleted": True}
+
+    # --- Goals --------------------------------------------------------
+    @app.get("/api/goals")
+    def list_goals(conn: sqlite3.Connection = Depends(get_db)) -> list[dict]:
+        return db.coerce_rows(db.get_goals(conn))
+
+    @app.post("/api/goals", status_code=201)
+    def create_goal(
+        body: GoalCreate, conn: sqlite3.Connection = Depends(get_db)
+    ) -> dict:
+        goal_id = db.insert_goal(
+            conn,
+            body.label,
+            body.target_amount,
+            current_amount=body.current_amount,
+            account_hash=db.hash_pii(body.account_id) if body.account_id else None,
+        )
+        return {"id": goal_id}
+
+    @app.patch("/api/goals/{goal_id}")
+    def edit_goal(
+        goal_id: int, body: GoalUpdate, conn: sqlite3.Connection = Depends(get_db)
+    ) -> dict:
+        if db.get_goal(conn, goal_id) is None:
+            raise HTTPException(status_code=404, detail="No such goal")
+        db.update_goal(conn, goal_id, **body.model_dump(exclude_none=True))
+        return dict(db.get_goal(conn, goal_id))
+
+    @app.delete("/api/goals/{goal_id}")
+    def remove_goal(
+        goal_id: int, conn: sqlite3.Connection = Depends(get_db)
+    ) -> dict:
+        db.delete_goal(conn, goal_id)
+        return {"id": goal_id, "deleted": True}
 
     # --- Manual data entry -------------------------------------------
     @app.post("/api/members", status_code=201)

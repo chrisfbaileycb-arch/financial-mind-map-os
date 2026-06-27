@@ -111,6 +111,39 @@ def check_household_vigilance(
     return len(alerts)
 
 
+def check_budgets(conn: sqlite3.Connection, report_id: int, today: date) -> int:
+    """Compare current-month category spend against budgets; flag overspend."""
+    print(f"[{datetime.now().isoformat()}] Running budget checks...")
+    budgets = db.get_budgets(conn)
+    if not budgets:
+        print("  -> 0 budget alert(s).")
+        return 0
+
+    month_start = date(today.year, today.month, 1).isoformat()
+    spent = {
+        row["category"]: row["spent"]
+        for row in db.spending_by_category(conn, since=month_start)
+    }
+    count = 0
+    for budget in budgets:
+        used = spent.get(budget["category"], 0.0)
+        if used > budget["monthly_limit"]:
+            db.add_action_item(
+                conn,
+                report_id,
+                item_type="BUDGET_ALERT",
+                description=(
+                    f"Over budget on '{budget['category']}': spent "
+                    f"${used:.2f} of ${budget['monthly_limit']:.2f} this month."
+                ),
+                amount=used,
+                urgency="HIGH",
+            )
+            count += 1
+    print(f"  -> {count} budget alert(s).")
+    return count
+
+
 def heartbeat(
     conn: sqlite3.Connection | None = None, today: date | None = None
 ) -> dict:
@@ -133,11 +166,12 @@ def heartbeat(
         n_subs = detect_subscriptions(conn, report_id)
         n_bills = run_cashflow(conn, report_id, today)
         n_household = check_household_vigilance(conn, report_id, today)
+        n_budget = check_budgets(conn, report_id, today)
 
-        total_items = n_subs + n_bills + n_household
+        total_items = n_subs + n_bills + n_household + n_budget
         summary = (
             f"{total_items} action item(s): {n_bills} bill, "
-            f"{n_subs} subscription, {n_household} household. "
+            f"{n_subs} subscription, {n_household} household, {n_budget} budget. "
             f"Each requires Approve/Deny/Snooze."
         )
         db.update_report_summary(conn, report_id, summary)
@@ -150,6 +184,7 @@ def heartbeat(
             "subscriptions": n_subs,
             "bills": n_bills,
             "household": n_household,
+            "budget": n_budget,
             "total_items": total_items,
         }
     except Exception as exc:  # pragma: no cover - defensive logging path

@@ -202,6 +202,7 @@ def build_map_from_db(conn) -> FinancialMindMap:
     schedules = db.get_paycheck_schedules(conn)
     bills = db.get_bills(conn)
     subscriptions = db.get_subscriptions(conn)
+    goals = db.get_goals(conn)
 
     def member_node_id(member_hash: str) -> str:
         return f"member_{member_hash[:8]}"
@@ -281,6 +282,34 @@ def build_map_from_db(conn) -> FinancialMindMap:
         fmap.add_node(MapNode(sub_id, label, NodeType.SUBSCRIPTION, amount=sub["amount"]))
         if pay_src:
             fmap.add_edge(MapEdge(pay_src, sub_id, EdgeType.PAYS_FOR, sub["amount"]))
+
+    for goal in goals:
+        goal_id = f"goal_{goal['id']}"
+        progress = 0.0
+        if goal["target_amount"]:
+            progress = round((goal["current_amount"] or 0.0) / goal["target_amount"], 3)
+        fmap.add_node(
+            MapNode(
+                goal_id,
+                goal["label"],
+                NodeType.GOAL,
+                amount=goal["target_amount"],
+                metadata={
+                    "current": goal["current_amount"] or 0.0,
+                    "progress": progress,
+                },
+            )
+        )
+        # Connect a funding account to the goal if one is linked.
+        if goal["account_hash"]:
+            fmap.add_edge(
+                MapEdge(
+                    account_node_id(goal["account_hash"]),
+                    goal_id,
+                    EdgeType.CONTRIBUTES_TO,
+                    goal["current_amount"] or 0.0,
+                )
+            )
 
     return fmap
 

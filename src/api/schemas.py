@@ -105,6 +105,24 @@ class TransactionSplit(BaseModel):
     parts: list[SplitPart] = Field(min_length=1)
 
 
+class BudgetUpsert(BaseModel):
+    category: str
+    monthly_limit: float = Field(ge=0)
+
+
+class GoalCreate(BaseModel):
+    label: str
+    target_amount: float = Field(gt=0)
+    current_amount: float = 0.0
+    account_id: str | None = None  # raw id; hashed before storage
+
+
+class GoalUpdate(BaseModel):
+    label: str | None = None
+    target_amount: float | None = None
+    current_amount: float | None = None
+
+
 class CsvImportRequest(BaseModel):
     account_id: str = Field(description="Raw account identifier; hashed before storage.")
     member_id: str | None = None
