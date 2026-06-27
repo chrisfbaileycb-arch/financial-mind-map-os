@@ -1,164 +1,553 @@
 """
 Financial Mind-Map OS — Database Layer
 
-All PII is SHA-256 hashed with local salt before storage.
-No raw PII is ever transmitted. Descriptions are tokenized to safe keywords only.
+All PII is SHA-256 hashed with a local salt before storage. No raw PII is ever
+transmitted. Descriptions are tokenized to safe keywords only.
+
+This module owns the SQLite schema (:func:`migrate`) and a thin repository of
+helpers used by the sync engine, the cash-flow orchestrator and the
+visualization layer. Every helper accepts an explicit ``sqlite3.Connection`` so
+callers (and tests) control transaction and lifecycle boundaries.
+
+Sign convention for ``transactions.amount``: money *out* (debits, spending) is
+negative, money *in* (deposits, income) is positive.
 """
 
-import sqlite3
-import hashlib
-import os
-from pathlib import Path
+from __future__ import annotations
 
-DB_PATH = Path("financial_os.db")
-SALT = os.getenv("PII_SALT", "default_local_salt_do_not_use_in_prod")
+import hashlib
+import re
+import sqlite3
+from collections.abc import Iterable
+from pathlib import Path
+from typing import Any
+
+from src import config
 
 
 def hash_pii(data: str) -> str:
     """Hash PII data using SHA-256 with a local salt."""
     if not data:
         return ""
-    salted = f"{data}{SALT}".encode('utf-8')
+    salted = f"{data}{config.PII_SALT}".encode()
     return hashlib.sha256(salted).hexdigest()
 
 
 def tokenize_description(description: str) -> str:
+    """Tokenize a transaction description to safe keywords only.
+
+    Strips account/card numbers and other digit runs, then keeps lowercase
+    alphabetic words longer than two characters.
     """
-    Tokenize a transaction description to safe keywords only.
-    Strips account numbers, names, and other PII from descriptions.
-    """
-    # Remove digits (potential account numbers, card numbers)
-    import re
-    safe = re.sub(r'\d{4,}', '[REDACTED]', description)
-    # Keep only alphabetic words
-    tokens = re.findall(r'[A-Za-z]+', safe)
-    # Return lowercase keywords
-    return ' '.join(t.lower() for t in tokens if len(t) > 2)
+    if not description:
+        return ""
+    # Drop long digit runs (account/card numbers) up front, then keep only
+    # alphabetic keywords longer than two characters.
+    safe = re.sub(r"\d{4,}", " ", description)
+    tokens = re.findall(r"[A-Za-z]+", safe)
+    return " ".join(t.lower() for t in tokens if len(t) > 2)
 
 
-def get_connection():
-    """Get SQLite database connection."""
-    conn = sqlite3.connect(DB_PATH)
+def get_connection(db_path: Path | None = None) -> sqlite3.Connection:
+    """Open a SQLite connection with row access and WAL journaling.
+
+    When ``db_path`` is omitted the path is resolved lazily from configuration
+    (``FMM_DB_PATH``), so the environment can redirect storage at runtime.
+    """
+    path = Path(db_path) if db_path is not None else config.get_db_path()
+    conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA foreign_keys=ON")
     return conn
 
 
-def migrate():
-    """Initialize or update database schema."""
-    conn = get_connection()
-    cursor = conn.cursor()
+def _ensure_column(conn: sqlite3.Connection, table: str, column: str, ddl: str) -> None:
+    """Add ``column`` to ``table`` if it does not already exist (idempotent)."""
+    existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+    if column not in existing:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {ddl}")
 
-    # --- Core Tables ---
 
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS transactions (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        account_hash TEXT NOT NULL,
-        amount REAL NOT NULL,
-        date TEXT NOT NULL,
-        description_tokens TEXT,
-        bucket_type TEXT CHECK(bucket_type IN ('BUCKET_TAX', 'BUCKET_TAXABLE', 'BUCKET_FREE')),
-        is_subscription BOOLEAN DEFAULT 0,
-        status TEXT DEFAULT 'PENDING' CHECK(status IN ('PENDING', 'APPROVED', 'DENIED', 'SNOOZED')),
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+def migrate(conn: sqlite3.Connection | None = None) -> None:
+    """Initialize or update the database schema (idempotent)."""
+    owns_conn = conn is None
+    conn = conn or get_connection()
+    try:
+        cur = conn.cursor()
+
+        # --- Household & accounts ---------------------------------------
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS household_members (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                member_hash TEXT NOT NULL UNIQUE,
+                role TEXT,
+                spending_limit REAL,
+                baseline_monthly REAL DEFAULT 0.0
+            )
+            """
+        )
+
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS accounts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                account_hash TEXT NOT NULL UNIQUE,
+                name TEXT,
+                bucket_type TEXT CHECK(
+                    bucket_type IN ('BUCKET_TAX', 'BUCKET_TAXABLE', 'BUCKET_FREE')
+                ),
+                balance REAL DEFAULT 0.0,
+                member_hash TEXT,
+                FOREIGN KEY (member_hash) REFERENCES household_members(member_hash)
+            )
+            """
+        )
+
+        # --- Transactions ----------------------------------------------
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS transactions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                account_hash TEXT NOT NULL,
+                merchant_hash TEXT,
+                member_hash TEXT,
+                amount REAL NOT NULL,
+                date TEXT NOT NULL,
+                description_tokens TEXT,
+                bucket_type TEXT CHECK(
+                    bucket_type IN ('BUCKET_TAX', 'BUCKET_TAXABLE', 'BUCKET_FREE')
+                ),
+                is_subscription BOOLEAN DEFAULT 0,
+                status TEXT DEFAULT 'PENDING' CHECK(
+                    status IN ('PENDING', 'APPROVED', 'DENIED', 'SNOOZED')
+                ),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        # Older databases may predate these columns.
+        _ensure_column(conn, "transactions", "merchant_hash", "merchant_hash TEXT")
+        _ensure_column(conn, "transactions", "member_hash", "member_hash TEXT")
+
+        # --- Subscriptions ---------------------------------------------
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS subscriptions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                merchant_hash TEXT NOT NULL UNIQUE,
+                label TEXT,
+                amount REAL NOT NULL,
+                frequency TEXT,
+                interval_days INTEGER,
+                occurrences INTEGER DEFAULT 0,
+                last_charge_date TEXT,
+                next_due_date TEXT,
+                status TEXT DEFAULT 'ACTIVE' CHECK(
+                    status IN ('ACTIVE', 'CANCELLED', 'FLAGGED')
+                ),
+                detected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+
+        # --- Paycheck & bill tables ------------------------------------
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS paycheck_schedules (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                member_hash TEXT NOT NULL,
+                pay_day_1 INTEGER NOT NULL,
+                pay_day_2 INTEGER,
+                pay_amount REAL,
+                employer_hash TEXT,
+                FOREIGN KEY (member_hash) REFERENCES household_members(member_hash)
+            )
+            """
+        )
+
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS bills (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                merchant_hash TEXT NOT NULL,
+                label TEXT,
+                amount REAL NOT NULL,
+                due_day INTEGER NOT NULL,
+                grace_period_days INTEGER DEFAULT 0,
+                late_fee REAL DEFAULT 0.0,
+                category TEXT,
+                auto_pay BOOLEAN DEFAULT 0,
+                status TEXT DEFAULT 'ACTIVE'
+            )
+            """
+        )
+        _ensure_column(conn, "bills", "label", "label TEXT")
+
+        # --- Action report loop ----------------------------------------
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS action_reports (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                report_type TEXT NOT NULL,
+                summary TEXT,
+                generated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                resolved_at TIMESTAMP,
+                resolution TEXT CHECK(
+                    resolution IN ('APPROVED', 'DENIED', 'SNOOZED', NULL)
+                )
+            )
+            """
+        )
+
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS action_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                report_id INTEGER NOT NULL,
+                item_type TEXT NOT NULL,
+                description TEXT,
+                amount REAL,
+                urgency TEXT DEFAULT 'NORMAL' CHECK(
+                    urgency IN ('CRITICAL', 'HIGH', 'NORMAL', 'LOW')
+                ),
+                status TEXT DEFAULT 'PENDING' CHECK(
+                    status IN ('PENDING', 'APPROVED', 'DENIED', 'SNOOZED')
+                ),
+                FOREIGN KEY (report_id) REFERENCES action_reports(id)
+            )
+            """
+        )
+
+        # --- Sync log ---------------------------------------------------
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS sync_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sync_type TEXT NOT NULL,
+                started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                completed_at TIMESTAMP,
+                status TEXT DEFAULT 'RUNNING',
+                items_processed INTEGER DEFAULT 0,
+                errors TEXT
+            )
+            """
+        )
+
+        conn.commit()
+    finally:
+        if owns_conn:
+            conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Repository helpers
+# ---------------------------------------------------------------------------
+
+
+def upsert_member(
+    conn: sqlite3.Connection,
+    member_hash: str,
+    role: str | None = None,
+    spending_limit: float | None = None,
+    baseline_monthly: float = 0.0,
+) -> None:
+    conn.execute(
+        """
+        INSERT INTO household_members (member_hash, role, spending_limit, baseline_monthly)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(member_hash) DO UPDATE SET
+            role = excluded.role,
+            spending_limit = excluded.spending_limit,
+            baseline_monthly = excluded.baseline_monthly
+        """,
+        (member_hash, role, spending_limit, baseline_monthly),
     )
-    ''')
-
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS subscriptions (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        merchant_hash TEXT NOT NULL,
-        amount REAL NOT NULL,
-        frequency TEXT,
-        next_due_date TEXT,
-        status TEXT DEFAULT 'ACTIVE' CHECK(status IN ('ACTIVE', 'CANCELLED', 'FLAGGED')),
-        detected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-    ''')
-
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS household_members (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        member_hash TEXT NOT NULL UNIQUE,
-        role TEXT,
-        spending_limit REAL,
-        baseline_monthly REAL DEFAULT 0.0
-    )
-    ''')
-
-    # --- Paycheck & Bill Tables ---
-
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS paycheck_schedules (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        member_hash TEXT NOT NULL,
-        pay_day_1 INTEGER NOT NULL,
-        pay_day_2 INTEGER,
-        pay_amount REAL,
-        employer_hash TEXT,
-        FOREIGN KEY (member_hash) REFERENCES household_members(member_hash)
-    )
-    ''')
-
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS bills (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        merchant_hash TEXT NOT NULL,
-        amount REAL NOT NULL,
-        due_day INTEGER NOT NULL,
-        grace_period_days INTEGER DEFAULT 0,
-        late_fee REAL DEFAULT 0.0,
-        category TEXT,
-        auto_pay BOOLEAN DEFAULT 0,
-        status TEXT DEFAULT 'ACTIVE'
-    )
-    ''')
-
-    # --- Action Report Tables ---
-
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS action_reports (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        report_type TEXT NOT NULL,
-        summary TEXT,
-        generated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        resolved_at TIMESTAMP,
-        resolution TEXT CHECK(resolution IN ('APPROVED', 'DENIED', 'SNOOZED', NULL))
-    )
-    ''')
-
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS action_items (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        report_id INTEGER NOT NULL,
-        item_type TEXT NOT NULL,
-        description TEXT,
-        amount REAL,
-        urgency TEXT DEFAULT 'NORMAL' CHECK(urgency IN ('CRITICAL', 'HIGH', 'NORMAL', 'LOW')),
-        status TEXT DEFAULT 'PENDING',
-        FOREIGN KEY (report_id) REFERENCES action_reports(id)
-    )
-    ''')
-
-    # --- Sync Log ---
-
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS sync_log (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        sync_type TEXT NOT NULL,
-        started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        completed_at TIMESTAMP,
-        status TEXT DEFAULT 'RUNNING',
-        items_processed INTEGER DEFAULT 0,
-        errors TEXT
-    )
-    ''')
-
     conn.commit()
-    conn.close()
-    print("Database migration complete. Schema initialized.")
+
+
+def get_members(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    return list(conn.execute("SELECT * FROM household_members ORDER BY id"))
+
+
+def upsert_account(
+    conn: sqlite3.Connection,
+    account_hash: str,
+    name: str | None = None,
+    bucket_type: str | None = None,
+    balance: float = 0.0,
+    member_hash: str | None = None,
+) -> None:
+    conn.execute(
+        """
+        INSERT INTO accounts (account_hash, name, bucket_type, balance, member_hash)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(account_hash) DO UPDATE SET
+            name = excluded.name,
+            bucket_type = excluded.bucket_type,
+            balance = excluded.balance,
+            member_hash = excluded.member_hash
+        """,
+        (account_hash, name, bucket_type, balance, member_hash),
+    )
+    conn.commit()
+
+
+def get_accounts(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    return list(conn.execute("SELECT * FROM accounts ORDER BY id"))
+
+
+def insert_transaction(
+    conn: sqlite3.Connection,
+    account_hash: str,
+    amount: float,
+    date: str,
+    merchant_hash: str | None = None,
+    member_hash: str | None = None,
+    description_tokens: str | None = None,
+    bucket_type: str | None = None,
+    is_subscription: bool = False,
+    status: str = "PENDING",
+) -> int:
+    cur = conn.execute(
+        """
+        INSERT INTO transactions (
+            account_hash, merchant_hash, member_hash, amount, date,
+            description_tokens, bucket_type, is_subscription, status
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            account_hash,
+            merchant_hash,
+            member_hash,
+            amount,
+            date,
+            description_tokens,
+            bucket_type,
+            int(is_subscription),
+            status,
+        ),
+    )
+    conn.commit()
+    return int(cur.lastrowid)
+
+
+def get_transactions(
+    conn: sqlite3.Connection,
+    *,
+    member_hash: str | None = None,
+    since: str | None = None,
+    only_debits: bool = False,
+) -> list[sqlite3.Row]:
+    clauses: list[str] = []
+    params: list[Any] = []
+    if member_hash is not None:
+        clauses.append("member_hash = ?")
+        params.append(member_hash)
+    if since is not None:
+        clauses.append("date >= ?")
+        params.append(since)
+    if only_debits:
+        clauses.append("amount < 0")
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    return list(
+        conn.execute(f"SELECT * FROM transactions {where} ORDER BY date, id", params)
+    )
+
+
+def upsert_subscription(
+    conn: sqlite3.Connection,
+    merchant_hash: str,
+    amount: float,
+    *,
+    label: str | None = None,
+    frequency: str | None = None,
+    interval_days: int | None = None,
+    occurrences: int = 0,
+    last_charge_date: str | None = None,
+    next_due_date: str | None = None,
+) -> None:
+    conn.execute(
+        """
+        INSERT INTO subscriptions (
+            merchant_hash, label, amount, frequency, interval_days,
+            occurrences, last_charge_date, next_due_date
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(merchant_hash) DO UPDATE SET
+            label = excluded.label,
+            amount = excluded.amount,
+            frequency = excluded.frequency,
+            interval_days = excluded.interval_days,
+            occurrences = excluded.occurrences,
+            last_charge_date = excluded.last_charge_date,
+            next_due_date = excluded.next_due_date
+        """,
+        (
+            merchant_hash,
+            label,
+            amount,
+            frequency,
+            interval_days,
+            occurrences,
+            last_charge_date,
+            next_due_date,
+        ),
+    )
+    conn.commit()
+
+
+def get_subscriptions(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    return list(conn.execute("SELECT * FROM subscriptions ORDER BY amount DESC"))
+
+
+def insert_bill(
+    conn: sqlite3.Connection,
+    merchant_hash: str,
+    amount: float,
+    due_day: int,
+    *,
+    label: str | None = None,
+    grace_period_days: int = 0,
+    late_fee: float = 0.0,
+    category: str | None = None,
+    auto_pay: bool = False,
+    status: str = "ACTIVE",
+) -> int:
+    cur = conn.execute(
+        """
+        INSERT INTO bills (
+            merchant_hash, label, amount, due_day, grace_period_days,
+            late_fee, category, auto_pay, status
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            merchant_hash,
+            label,
+            amount,
+            due_day,
+            grace_period_days,
+            late_fee,
+            category,
+            int(auto_pay),
+            status,
+        ),
+    )
+    conn.commit()
+    return int(cur.lastrowid)
+
+
+def get_bills(conn: sqlite3.Connection, *, active_only: bool = True) -> list[sqlite3.Row]:
+    where = "WHERE status = 'ACTIVE'" if active_only else ""
+    return list(conn.execute(f"SELECT * FROM bills {where} ORDER BY due_day"))
+
+
+def insert_paycheck_schedule(
+    conn: sqlite3.Connection,
+    member_hash: str,
+    pay_day_1: int,
+    pay_day_2: int | None = None,
+    pay_amount: float | None = None,
+    employer_hash: str | None = None,
+) -> int:
+    cur = conn.execute(
+        """
+        INSERT INTO paycheck_schedules (
+            member_hash, pay_day_1, pay_day_2, pay_amount, employer_hash
+        ) VALUES (?, ?, ?, ?, ?)
+        """,
+        (member_hash, pay_day_1, pay_day_2, pay_amount, employer_hash),
+    )
+    conn.commit()
+    return int(cur.lastrowid)
+
+
+def get_paycheck_schedules(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    return list(conn.execute("SELECT * FROM paycheck_schedules ORDER BY id"))
+
+
+def create_action_report(
+    conn: sqlite3.Connection, report_type: str, summary: str = ""
+) -> int:
+    cur = conn.execute(
+        "INSERT INTO action_reports (report_type, summary) VALUES (?, ?)",
+        (report_type, summary),
+    )
+    conn.commit()
+    return int(cur.lastrowid)
+
+
+def add_action_item(
+    conn: sqlite3.Connection,
+    report_id: int,
+    item_type: str,
+    description: str,
+    *,
+    amount: float | None = None,
+    urgency: str = "NORMAL",
+) -> int:
+    cur = conn.execute(
+        """
+        INSERT INTO action_items (report_id, item_type, description, amount, urgency)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (report_id, item_type, description, amount, urgency),
+    )
+    conn.commit()
+    return int(cur.lastrowid)
+
+
+def update_report_summary(conn: sqlite3.Connection, report_id: int, summary: str) -> None:
+    conn.execute(
+        "UPDATE action_reports SET summary = ? WHERE id = ?", (summary, report_id)
+    )
+    conn.commit()
+
+
+def get_action_items(conn: sqlite3.Connection, report_id: int) -> list[sqlite3.Row]:
+    return list(
+        conn.execute(
+            "SELECT * FROM action_items WHERE report_id = ? ORDER BY "
+            "CASE urgency WHEN 'CRITICAL' THEN 0 WHEN 'HIGH' THEN 1 "
+            "WHEN 'NORMAL' THEN 2 ELSE 3 END, id",
+            (report_id,),
+        )
+    )
+
+
+def start_sync(conn: sqlite3.Connection, sync_type: str) -> int:
+    cur = conn.execute(
+        "INSERT INTO sync_log (sync_type, status) VALUES (?, 'RUNNING')",
+        (sync_type,),
+    )
+    conn.commit()
+    return int(cur.lastrowid)
+
+
+def finish_sync(
+    conn: sqlite3.Connection,
+    sync_id: int,
+    *,
+    status: str = "COMPLETE",
+    items_processed: int = 0,
+    errors: str | None = None,
+) -> None:
+    conn.execute(
+        """
+        UPDATE sync_log
+        SET completed_at = CURRENT_TIMESTAMP, status = ?, items_processed = ?, errors = ?
+        WHERE id = ?
+        """,
+        (status, items_processed, errors, sync_id),
+    )
+    conn.commit()
+
+
+def coerce_rows(rows: Iterable[sqlite3.Row]) -> list[dict]:
+    """Turn rows into plain dicts (handy for JSON/serialization)."""
+    return [dict(r) for r in rows]
 
 
 if __name__ == "__main__":
     migrate()
+    print("Database migration complete. Schema initialized.")
