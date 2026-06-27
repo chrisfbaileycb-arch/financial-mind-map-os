@@ -22,4 +22,7 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ resolution, snooze_days: snoozeDays }),
     }),
+  accounts: () => request('/accounts'),
+  importCsv: (payload) =>
+    request('/import/csv', { method: 'POST', body: JSON.stringify(payload) }),
 }

@@ -24,11 +24,13 @@ from src import actions, db
 from src.api.schemas import (
     AccountCreate,
     BillCreate,
+    CsvImportRequest,
     MemberCreate,
     PaycheckScheduleCreate,
     ResolveRequest,
     TransactionCreate,
 )
+from src.importer import ColumnMapping, import_transactions
 from src.sync.engine import heartbeat
 from src.visualization import build_map_from_db
 
@@ -198,6 +200,28 @@ def create_app() -> FastAPI:
             pay_amount=body.pay_amount,
         )
         return {"id": schedule_id}
+
+    @app.post("/api/import/csv")
+    def import_csv(
+        body: CsvImportRequest, conn: sqlite3.Connection = Depends(get_db)
+    ) -> dict:
+        mapping = ColumnMapping(
+            date=body.mapping.date,
+            amount=body.mapping.amount,
+            debit=body.mapping.debit,
+            credit=body.mapping.credit,
+            description=body.mapping.description,
+            merchant=body.mapping.merchant,
+            flip_sign=body.mapping.flip_sign,
+        )
+        return import_transactions(
+            conn,
+            body.csv_text,
+            mapping,
+            account_id=body.account_id,
+            member_id=body.member_id,
+            run_detection=body.run_detection,
+        )
 
     # --- Frontend (served when a build exists) -----------------------
     if _FRONTEND_DIST.is_dir():

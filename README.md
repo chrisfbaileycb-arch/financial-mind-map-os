@@ -109,6 +109,15 @@ Key API endpoints (full docs at `/docs` when the server is running):
 | `POST` | `/api/items/{id}/resolve` | Approve / Deny / Snooze an item |
 | `GET`  | `/api/graph` | Mind-map graph data |
 | `POST` | `/api/{accounts,bills,transactions,members}` | Manual data entry |
+| `POST` | `/api/import/csv` | Import transactions from a bank/card CSV |
+
+### Loading your own data (CSV import)
+
+Click **Import CSV** in the app, pick a bank/card export, and map the columns
+(date, amount or separate debit/credit, description). On import, the account is
+created automatically, transactions are stored (PII tokenized/hashed), and the
+Subscription Killer runs so recurring charges show up immediately. Everything
+stays in your local SQLite database.
 
 ### What the sample data demonstrates
 

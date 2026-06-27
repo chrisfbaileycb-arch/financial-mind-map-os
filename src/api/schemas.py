@@ -57,3 +57,23 @@ class PaycheckScheduleCreate(BaseModel):
     pay_day_1: int = Field(ge=1, le=31)
     pay_day_2: int | None = Field(default=None, ge=1, le=31)
     pay_amount: float | None = None
+
+
+class ColumnMappingModel(BaseModel):
+    """Maps CSV columns to transaction fields."""
+
+    date: str
+    amount: str | None = None
+    debit: str | None = None
+    credit: str | None = None
+    description: str | None = None
+    merchant: str | None = None
+    flip_sign: bool = False
+
+
+class CsvImportRequest(BaseModel):
+    account_id: str = Field(description="Raw account identifier; hashed before storage.")
+    member_id: str | None = None
+    csv_text: str = Field(description="Raw CSV file contents, including the header row.")
+    mapping: ColumnMappingModel
+    run_detection: bool = True

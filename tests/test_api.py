@@ -65,6 +65,22 @@ def test_collections_endpoints(client):
     assert len(client.get("/api/members").json()) == 2
 
 
+def test_csv_import_endpoint(client):
+    lines = ["Date,Amount,Description"]
+    for month in range(1, 7):
+        lines.append(f"2026-{month:02d}-05,-9.99,SPOTIFY")
+    payload = {
+        "account_id": "import-acct",
+        "csv_text": "\n".join(lines) + "\n",
+        "mapping": {"date": "Date", "amount": "Amount", "description": "Description"},
+    }
+    resp = client.post("/api/import/csv", json=payload)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["imported"] == 6
+    assert data["detected"] >= 1
+
+
 def test_manual_bill_creation(client):
     resp = client.post(
         "/api/bills",

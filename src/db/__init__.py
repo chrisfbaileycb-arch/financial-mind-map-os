@@ -55,7 +55,11 @@ def get_connection(db_path: Path | None = None) -> sqlite3.Connection:
     (``FMM_DB_PATH``), so the environment can redirect storage at runtime.
     """
     path = Path(db_path) if db_path is not None else config.get_db_path()
-    conn = sqlite3.connect(path)
+    # check_same_thread=False: FastAPI runs sync handlers on a threadpool, so a
+    # single per-request connection may be created and used on different worker
+    # threads. Each request still gets its own connection and never shares it
+    # concurrently, so cross-thread use is safe here.
+    conn = sqlite3.connect(path, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")

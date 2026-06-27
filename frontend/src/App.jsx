@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { api } from './api.js'
 import MindMap from './components/MindMap.jsx'
 import ActionInbox from './components/ActionInbox.jsx'
+import ImportPanel from './components/ImportPanel.jsx'
 
 export default function App() {
   const [graph, setGraph] = useState(null)
@@ -10,6 +11,7 @@ export default function App() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [panelOpen, setPanelOpen] = useState(true)
+  const [importOpen, setImportOpen] = useState(false)
 
   const load = useCallback(async () => {
     setError(null)
@@ -63,6 +65,9 @@ export default function App() {
           <span>Financial Mind-Map OS</span>
         </div>
         <div className="actions">
+          <button className="btn ghost" onClick={() => setImportOpen(true)}>
+            Import CSV
+          </button>
           <button className="btn ghost" onClick={() => setPanelOpen((o) => !o)}>
             {panelOpen ? 'Hide' : 'Actions'}{pending.length ? ` (${pending.length})` : ''}
           </button>
@@ -89,6 +94,13 @@ export default function App() {
           </aside>
         )}
       </div>
+
+      {importOpen && (
+        <ImportPanel
+          onClose={() => setImportOpen(false)}
+          onImported={load}
+        />
+      )}
     </div>
   )
 }
