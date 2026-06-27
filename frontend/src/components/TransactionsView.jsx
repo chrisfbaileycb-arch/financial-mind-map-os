@@ -83,6 +83,7 @@ export default function TransactionsView() {
   const saveCategory = async (id, category) => {
     try {
       await api.updateTransaction(id, { category })
+      load() // refresh so auto-categorized siblings show their new category
     } catch (e) {
       setError(e.message)
     }

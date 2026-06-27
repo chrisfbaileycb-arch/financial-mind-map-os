@@ -59,6 +59,30 @@ def test_spending_by_category(conn):
     assert rows["uncategorized"] == 25.0
 
 
+def test_category_rules_apply_to_siblings(conn):
+    merchant = db.hash_pii("Coffee Co")
+    for day in ("2026-06-01", "2026-06-08", "2026-06-15"):
+        db.insert_transaction(
+            conn, account_hash=db.hash_pii("a"), amount=-5, date=day, merchant_hash=merchant
+        )
+    db.upsert_category_rule(conn, merchant, "coffee")
+    applied = db.apply_category_rules(conn)
+    assert applied == 3
+    cats = {t["category"] for t in db.get_transactions(conn)}
+    assert cats == {"coffee"}
+
+
+def test_category_rules_do_not_overwrite_existing(conn):
+    merchant = db.hash_pii("Shop")
+    db.insert_transaction(
+        conn, account_hash=db.hash_pii("a"), amount=-5, date="2026-06-01",
+        merchant_hash=merchant, category="manual",
+    )
+    db.upsert_category_rule(conn, merchant, "auto")
+    db.apply_category_rules(conn)
+    assert db.get_transactions(conn)[0]["category"] == "manual"  # untouched
+
+
 def test_update_bill(conn):
     bill_id = db.insert_bill(conn, db.hash_pii("Rent Co"), amount=1400, due_day=1, label="Rent")
     db.update_bill(conn, bill_id, amount=1500, auto_pay=True)

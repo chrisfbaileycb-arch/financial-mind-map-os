@@ -195,6 +195,16 @@ def migrate(conn: sqlite3.Connection | None = None) -> None:
         # --- Budgets & goals -------------------------------------------
         cur.execute(
             """
+            CREATE TABLE IF NOT EXISTS category_rules (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                merchant_hash TEXT NOT NULL UNIQUE,
+                category TEXT NOT NULL
+            )
+            """
+        )
+
+        cur.execute(
+            """
             CREATE TABLE IF NOT EXISTS budgets (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 category TEXT NOT NULL UNIQUE,
@@ -539,6 +549,46 @@ def spending_by_category(
             params,
         )
     )
+
+
+# --- Auto-categorization rules ---------------------------------------------
+
+
+def upsert_category_rule(
+    conn: sqlite3.Connection, merchant_hash: str, category: str
+) -> None:
+    conn.execute(
+        """
+        INSERT INTO category_rules (merchant_hash, category) VALUES (?, ?)
+        ON CONFLICT(merchant_hash) DO UPDATE SET category = excluded.category
+        """,
+        (merchant_hash, category),
+    )
+    conn.commit()
+
+
+def get_category_rules(conn: sqlite3.Connection) -> dict[str, str]:
+    return {
+        r["merchant_hash"]: r["category"]
+        for r in conn.execute("SELECT merchant_hash, category FROM category_rules")
+    }
+
+
+def apply_category_rules(conn: sqlite3.Connection) -> int:
+    """Set categories on still-uncategorized transactions from saved rules."""
+    cur = conn.execute(
+        """
+        UPDATE transactions
+        SET category = (
+            SELECT category FROM category_rules
+            WHERE category_rules.merchant_hash = transactions.merchant_hash
+        )
+        WHERE (category IS NULL OR category = '')
+          AND merchant_hash IN (SELECT merchant_hash FROM category_rules)
+        """
+    )
+    conn.commit()
+    return cur.rowcount
 
 
 # --- Budgets ---------------------------------------------------------------

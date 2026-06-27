@@ -194,6 +194,9 @@ def import_transactions(
         )
         imported += 1
 
+    # Auto-categorize imported rows from previously learned merchant rules.
+    db.apply_category_rules(conn)
+
     detected = 0
     if run_detection and imported:
         detected = len(run_subscription_detection(conn))

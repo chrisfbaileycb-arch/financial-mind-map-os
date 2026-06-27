@@ -344,9 +344,14 @@ def create_app() -> FastAPI:
         body: TransactionUpdate,
         conn: sqlite3.Connection = Depends(get_db),
     ) -> dict:
-        if db.get_transaction(conn, txn_id) is None:
+        txn = db.get_transaction(conn, txn_id)
+        if txn is None:
             raise HTTPException(status_code=404, detail="No such transaction")
         db.update_transaction(conn, txn_id, **body.model_dump(exclude_none=True))
+        # Remember merchant -> category so siblings auto-categorize.
+        if body.category and txn["merchant_hash"]:
+            db.upsert_category_rule(conn, txn["merchant_hash"], body.category)
+            db.apply_category_rules(conn)
         return dict(db.get_transaction(conn, txn_id))
 
     @app.post("/api/transactions/{txn_id}/split")
