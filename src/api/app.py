@@ -23,12 +23,16 @@ from fastapi.staticfiles import StaticFiles
 from src import actions, db
 from src.api.schemas import (
     AccountCreate,
+    AccountUpdate,
     BillCreate,
+    BillUpdate,
     CsvImportRequest,
     MemberCreate,
     PaycheckScheduleCreate,
     ResolveRequest,
     TransactionCreate,
+    TransactionSplit,
+    TransactionUpdate,
 )
 from src.importer import ColumnMapping, import_transactions
 from src.sync.engine import heartbeat
@@ -119,6 +123,19 @@ def create_app() -> FastAPI:
     def list_subscriptions(conn: sqlite3.Connection = Depends(get_db)) -> list[dict]:
         return db.coerce_rows(db.get_subscriptions(conn))
 
+    @app.get("/api/transactions")
+    def list_transactions(
+        limit: int = 200, conn: sqlite3.Connection = Depends(get_db)
+    ) -> list[dict]:
+        return db.coerce_rows(db.get_transactions(conn, limit=limit))
+
+    @app.get("/api/spending")
+    def spending(conn: sqlite3.Connection = Depends(get_db)) -> dict:
+        return {
+            "by_month": db.coerce_rows(db.spending_by_month(conn)),
+            "by_category": db.coerce_rows(db.spending_by_category(conn)),
+        }
+
     @app.get("/api/members")
     def list_members(conn: sqlite3.Connection = Depends(get_db)) -> list[dict]:
         return db.coerce_rows(db.get_members(conn))
@@ -200,6 +217,59 @@ def create_app() -> FastAPI:
             pay_amount=body.pay_amount,
         )
         return {"id": schedule_id}
+
+    # --- Edit existing records ---------------------------------------
+    @app.patch("/api/accounts/{account_hash}")
+    def edit_account(
+        account_hash: str,
+        body: AccountUpdate,
+        conn: sqlite3.Connection = Depends(get_db),
+    ) -> dict:
+        db.update_account(conn, account_hash, **body.model_dump(exclude_none=True))
+        return {"account_hash": account_hash}
+
+    @app.patch("/api/bills/{bill_id}")
+    def edit_bill(
+        bill_id: int, body: BillUpdate, conn: sqlite3.Connection = Depends(get_db)
+    ) -> dict:
+        if db.get_bill(conn, bill_id) is None:
+            raise HTTPException(status_code=404, detail="No such bill")
+        db.update_bill(conn, bill_id, **body.model_dump(exclude_none=True))
+        return dict(db.get_bill(conn, bill_id))
+
+    @app.delete("/api/bills/{bill_id}")
+    def delete_bill(
+        bill_id: int, conn: sqlite3.Connection = Depends(get_db)
+    ) -> dict:
+        if db.get_bill(conn, bill_id) is None:
+            raise HTTPException(status_code=404, detail="No such bill")
+        db.set_bill_status(conn, bill_id, "CANCELLED")
+        return {"id": bill_id, "status": "CANCELLED"}
+
+    @app.patch("/api/transactions/{txn_id}")
+    def edit_transaction(
+        txn_id: int,
+        body: TransactionUpdate,
+        conn: sqlite3.Connection = Depends(get_db),
+    ) -> dict:
+        if db.get_transaction(conn, txn_id) is None:
+            raise HTTPException(status_code=404, detail="No such transaction")
+        db.update_transaction(conn, txn_id, **body.model_dump(exclude_none=True))
+        return dict(db.get_transaction(conn, txn_id))
+
+    @app.post("/api/transactions/{txn_id}/split")
+    def split_transaction(
+        txn_id: int,
+        body: TransactionSplit,
+        conn: sqlite3.Connection = Depends(get_db),
+    ) -> dict:
+        try:
+            new_ids = db.split_transaction(
+                conn, txn_id, [p.model_dump() for p in body.parts]
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return {"created": new_ids}
 
     @app.post("/api/import/csv")
     def import_csv(

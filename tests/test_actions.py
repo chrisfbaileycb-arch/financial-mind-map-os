@@ -40,6 +40,44 @@ def test_denying_cancel_keeps_subscription_active(seeded_conn):
     assert target["status"] == "ACTIVE"
 
 
+def test_denying_cancel_promotes_subscription_to_bill(seeded_conn):
+    summary = heartbeat(seeded_conn, today=date(2026, 6, 27))
+    sub_item = _items_by_type(seeded_conn, summary["report_id"], "SUBSCRIPTION_CANCEL")[0]
+    sub = db.get_subscription(seeded_conn, sub_item["ref_id"])
+
+    bills_before = len(db.get_bills(seeded_conn, active_only=False))
+    actions.resolve_action_item(seeded_conn, sub_item["id"], "DENIED")
+    bills_after = db.get_bills(seeded_conn, active_only=False)
+
+    assert len(bills_after) == bills_before + 1
+    promoted = db.get_bill_by_merchant(seeded_conn, sub["merchant_hash"])
+    assert promoted is not None
+    assert promoted["category"] == "subscription"
+    assert promoted["amount"] == sub["amount"]
+
+
+def test_promote_to_bill_is_idempotent(seeded_conn):
+    summary = heartbeat(seeded_conn, today=date(2026, 6, 27))
+    items = _items_by_type(seeded_conn, summary["report_id"], "SUBSCRIPTION_CANCEL")
+    # Deny the same subscription twice (second via a fresh heartbeat's item).
+    actions.resolve_action_item(seeded_conn, items[0]["id"], "DENIED")
+    merchant = db.get_subscription(seeded_conn, items[0]["ref_id"])["merchant_hash"]
+
+    def count():
+        return sum(
+            1
+            for b in db.get_bills(seeded_conn, active_only=False)
+            if b["merchant_hash"] == merchant
+        )
+
+    first = count()
+    summary2 = heartbeat(seeded_conn, today=date(2026, 6, 27))
+    again = _items_by_type(seeded_conn, summary2["report_id"], "SUBSCRIPTION_CANCEL")
+    same = next(i for i in again if db.get_subscription(seeded_conn, i["ref_id"])["merchant_hash"] == merchant)
+    actions.resolve_action_item(seeded_conn, same["id"], "DENIED")
+    assert count() == first  # no duplicate bill
+
+
 def test_snooze_sets_future_date(seeded_conn):
     summary = heartbeat(seeded_conn, today=date(2026, 6, 27))
     item = db.get_action_items(seeded_conn, summary["report_id"])[0]

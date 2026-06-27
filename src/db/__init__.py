@@ -123,6 +123,7 @@ def migrate(conn: sqlite3.Connection | None = None) -> None:
                 bucket_type TEXT CHECK(
                     bucket_type IN ('BUCKET_TAX', 'BUCKET_TAXABLE', 'BUCKET_FREE')
                 ),
+                category TEXT,
                 is_subscription BOOLEAN DEFAULT 0,
                 status TEXT DEFAULT 'PENDING' CHECK(
                     status IN ('PENDING', 'APPROVED', 'DENIED', 'SNOOZED')
@@ -134,6 +135,7 @@ def migrate(conn: sqlite3.Connection | None = None) -> None:
         # Older databases may predate these columns.
         _ensure_column(conn, "transactions", "merchant_hash", "merchant_hash TEXT")
         _ensure_column(conn, "transactions", "member_hash", "member_hash TEXT")
+        _ensure_column(conn, "transactions", "category", "category TEXT")
 
         # --- Subscriptions ---------------------------------------------
         cur.execute(
@@ -311,6 +313,20 @@ def get_accounts(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     return list(conn.execute("SELECT * FROM accounts ORDER BY id"))
 
 
+def update_account(conn: sqlite3.Connection, account_hash: str, **fields: Any) -> None:
+    """Update allowed account fields (name, bucket_type, balance)."""
+    allowed = {"name", "bucket_type", "balance"}
+    updates = {k: v for k, v in fields.items() if k in allowed and v is not None}
+    if not updates:
+        return
+    set_sql = ", ".join(f"{k} = ?" for k in updates)
+    conn.execute(
+        f"UPDATE accounts SET {set_sql} WHERE account_hash = ?",
+        (*updates.values(), account_hash),
+    )
+    conn.commit()
+
+
 def insert_transaction(
     conn: sqlite3.Connection,
     account_hash: str,
@@ -320,6 +336,7 @@ def insert_transaction(
     member_hash: str | None = None,
     description_tokens: str | None = None,
     bucket_type: str | None = None,
+    category: str | None = None,
     is_subscription: bool = False,
     status: str = "PENDING",
 ) -> int:
@@ -327,8 +344,8 @@ def insert_transaction(
         """
         INSERT INTO transactions (
             account_hash, merchant_hash, member_hash, amount, date,
-            description_tokens, bucket_type, is_subscription, status
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            description_tokens, bucket_type, category, is_subscription, status
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             account_hash,
@@ -338,6 +355,7 @@ def insert_transaction(
             date,
             description_tokens,
             bucket_type,
+            category,
             int(is_subscription),
             status,
         ),
@@ -352,6 +370,7 @@ def get_transactions(
     member_hash: str | None = None,
     since: str | None = None,
     only_debits: bool = False,
+    limit: int | None = None,
 ) -> list[sqlite3.Row]:
     clauses: list[str] = []
     params: list[Any] = []
@@ -364,8 +383,107 @@ def get_transactions(
     if only_debits:
         clauses.append("amount < 0")
     where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    limit_sql = f" LIMIT {int(limit)}" if limit else ""
     return list(
-        conn.execute(f"SELECT * FROM transactions {where} ORDER BY date, id", params)
+        conn.execute(
+            f"SELECT * FROM transactions {where} ORDER BY date DESC, id DESC{limit_sql}",
+            params,
+        )
+    )
+
+
+def get_transaction(conn: sqlite3.Connection, txn_id: int) -> sqlite3.Row | None:
+    return conn.execute(
+        "SELECT * FROM transactions WHERE id = ?", (txn_id,)
+    ).fetchone()
+
+
+def update_transaction(conn: sqlite3.Connection, txn_id: int, **fields: Any) -> None:
+    """Update allowed transaction fields (amount, date, category, bucket_type)."""
+    allowed = {"amount", "date", "category", "bucket_type", "description_tokens"}
+    updates = {k: v for k, v in fields.items() if k in allowed}
+    if not updates:
+        return
+    set_sql = ", ".join(f"{k} = ?" for k in updates)
+    conn.execute(
+        f"UPDATE transactions SET {set_sql} WHERE id = ?",
+        (*updates.values(), txn_id),
+    )
+    conn.commit()
+
+
+def delete_transaction(conn: sqlite3.Connection, txn_id: int) -> None:
+    conn.execute("DELETE FROM transactions WHERE id = ?", (txn_id,))
+    conn.commit()
+
+
+def split_transaction(
+    conn: sqlite3.Connection, txn_id: int, parts: list[dict]
+) -> list[int]:
+    """Replace a transaction with several child rows (e.g. by category).
+
+    Each part is ``{amount, category?, description?}``; children inherit the
+    parent's account, date, merchant and member. The parent row is removed.
+    """
+    parent = get_transaction(conn, txn_id)
+    if parent is None:
+        raise ValueError(f"No transaction with id {txn_id}")
+    if not parts:
+        raise ValueError("Split requires at least one part")
+
+    new_ids = []
+    for part in parts:
+        new_ids.append(
+            insert_transaction(
+                conn,
+                account_hash=parent["account_hash"],
+                amount=float(part["amount"]),
+                date=parent["date"],
+                merchant_hash=parent["merchant_hash"],
+                member_hash=parent["member_hash"],
+                description_tokens=part.get("description") or parent["description_tokens"],
+                bucket_type=parent["bucket_type"],
+                category=part.get("category"),
+                status=parent["status"],
+            )
+        )
+    delete_transaction(conn, txn_id)
+    return new_ids
+
+
+def spending_by_month(
+    conn: sqlite3.Connection, *, months: int = 12
+) -> list[sqlite3.Row]:
+    """Total spending (debits) grouped by calendar month, most recent last."""
+    return list(
+        conn.execute(
+            """
+            SELECT substr(date, 1, 7) AS month,
+                   ROUND(SUM(-amount), 2) AS spent
+            FROM transactions
+            WHERE amount < 0
+            GROUP BY month
+            ORDER BY month DESC
+            LIMIT ?
+            """,
+            (months,),
+        )
+    )
+
+
+def spending_by_category(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    """Total spending (debits) grouped by category."""
+    return list(
+        conn.execute(
+            """
+            SELECT COALESCE(NULLIF(category, ''), 'uncategorized') AS category,
+                   ROUND(SUM(-amount), 2) AS spent
+            FROM transactions
+            WHERE amount < 0
+            GROUP BY category
+            ORDER BY spent DESC
+            """
+        )
     )
 
 
@@ -414,6 +532,12 @@ def get_subscriptions(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     return list(conn.execute("SELECT * FROM subscriptions ORDER BY amount DESC"))
 
 
+def get_subscription(conn: sqlite3.Connection, subscription_id: int) -> sqlite3.Row | None:
+    return conn.execute(
+        "SELECT * FROM subscriptions WHERE id = ?", (subscription_id,)
+    ).fetchone()
+
+
 def insert_bill(
     conn: sqlite3.Connection,
     merchant_hash: str,
@@ -453,6 +577,43 @@ def insert_bill(
 def get_bills(conn: sqlite3.Connection, *, active_only: bool = True) -> list[sqlite3.Row]:
     where = "WHERE status = 'ACTIVE'" if active_only else ""
     return list(conn.execute(f"SELECT * FROM bills {where} ORDER BY due_day"))
+
+
+def get_bill(conn: sqlite3.Connection, bill_id: int) -> sqlite3.Row | None:
+    return conn.execute("SELECT * FROM bills WHERE id = ?", (bill_id,)).fetchone()
+
+
+def get_bill_by_merchant(
+    conn: sqlite3.Connection, merchant_hash: str
+) -> sqlite3.Row | None:
+    return conn.execute(
+        "SELECT * FROM bills WHERE merchant_hash = ? LIMIT 1", (merchant_hash,)
+    ).fetchone()
+
+
+def update_bill(conn: sqlite3.Connection, bill_id: int, **fields: Any) -> None:
+    """Update allowed bill fields."""
+    allowed = {
+        "label",
+        "amount",
+        "due_day",
+        "grace_period_days",
+        "late_fee",
+        "category",
+        "auto_pay",
+        "status",
+    }
+    updates = {k: v for k, v in fields.items() if k in allowed and v is not None}
+    if not updates:
+        return
+    if "auto_pay" in updates:
+        updates["auto_pay"] = int(updates["auto_pay"])
+    set_sql = ", ".join(f"{k} = ?" for k in updates)
+    conn.execute(
+        f"UPDATE bills SET {set_sql} WHERE id = ?",
+        (*updates.values(), bill_id),
+    )
+    conn.commit()
 
 
 def insert_paycheck_schedule(

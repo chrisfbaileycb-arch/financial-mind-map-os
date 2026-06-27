@@ -81,6 +81,57 @@ def test_csv_import_endpoint(client):
     assert data["detected"] >= 1
 
 
+def test_transactions_list_and_categorize(client):
+    txns = client.get("/api/transactions").json()
+    assert len(txns) > 0
+    debit = next(t for t in txns if t["amount"] < 0)
+    resp = client.patch(f"/api/transactions/{debit['id']}", json={"category": "fun"})
+    assert resp.status_code == 200
+    assert resp.json()["category"] == "fun"
+
+
+def test_transaction_split(client):
+    txns = client.get("/api/transactions").json()
+    debit = next(t for t in txns if t["amount"] < 0)
+    half = round(debit["amount"] / 2, 2)
+    resp = client.post(
+        f"/api/transactions/{debit['id']}/split",
+        json={"parts": [
+            {"amount": half, "category": "a"},
+            {"amount": debit["amount"] - half, "category": "b"},
+        ]},
+    )
+    assert resp.status_code == 200
+    assert len(resp.json()["created"]) == 2
+
+
+def test_spending_endpoint(client):
+    data = client.get("/api/spending").json()
+    assert "by_month" in data and "by_category" in data
+    assert len(data["by_month"]) > 0
+
+
+def test_edit_and_delete_bill(client):
+    bill = client.get("/api/bills").json()[0]
+    resp = client.patch(f"/api/bills/{bill['id']}", json={"amount": 999.0})
+    assert resp.status_code == 200 and resp.json()["amount"] == 999.0
+    resp = client.delete(f"/api/bills/{bill['id']}")
+    assert resp.status_code == 200 and resp.json()["status"] == "CANCELLED"
+
+
+def test_edit_account(client):
+    acct = client.get("/api/accounts").json()[0]
+    resp = client.patch(
+        f"/api/accounts/{acct['account_hash']}", json={"balance": 4321.0}
+    )
+    assert resp.status_code == 200
+    updated = next(
+        a for a in client.get("/api/accounts").json()
+        if a["account_hash"] == acct["account_hash"]
+    )
+    assert updated["balance"] == 4321.0
+
+
 def test_manual_bill_creation(client):
     resp = client.post(
         "/api/bills",

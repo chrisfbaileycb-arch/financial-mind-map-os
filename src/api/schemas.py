@@ -71,6 +71,40 @@ class ColumnMappingModel(BaseModel):
     flip_sign: bool = False
 
 
+class AccountUpdate(BaseModel):
+    name: str | None = None
+    bucket_type: BucketType | None = None
+    balance: float | None = None
+
+
+class BillUpdate(BaseModel):
+    label: str | None = None
+    amount: float | None = None
+    due_day: int | None = Field(default=None, ge=1, le=31)
+    grace_period_days: int | None = None
+    late_fee: float | None = None
+    category: str | None = None
+    auto_pay: bool | None = None
+    status: str | None = None
+
+
+class TransactionUpdate(BaseModel):
+    amount: float | None = None
+    date: str | None = None
+    category: str | None = None
+    bucket_type: BucketType | None = None
+
+
+class SplitPart(BaseModel):
+    amount: float
+    category: str | None = None
+    description: str | None = None
+
+
+class TransactionSplit(BaseModel):
+    parts: list[SplitPart] = Field(min_length=1)
+
+
 class CsvImportRequest(BaseModel):
     account_id: str = Field(description="Raw account identifier; hashed before storage.")
     member_id: str | None = None

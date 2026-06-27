@@ -76,9 +76,35 @@ def _apply_denial(conn: sqlite3.Connection, item: sqlite3.Row) -> None:
     ref_id = item["ref_id"]
 
     if item_type == "SUBSCRIPTION_CANCEL" and ref_table == "subscriptions" and ref_id:
-        # Denying a cancel suggestion = keep it, but mark it reviewed so it is
-        # not re-surfaced as a fresh finding.
+        # Denying "Cancel?" means "keep it" — so promote the recurring charge to
+        # a tracked bill the cash-flow orchestrator can plan around, and mark the
+        # subscription reviewed so it is not re-surfaced.
         db.set_subscription_status(conn, ref_id, "ACTIVE")
+        _promote_subscription_to_bill(conn, ref_id)
+
+
+def _promote_subscription_to_bill(conn: sqlite3.Connection, subscription_id: int) -> None:
+    """Create a tracked bill from a kept subscription (idempotent per merchant)."""
+    sub = db.get_subscription(conn, subscription_id)
+    if sub is None:
+        return
+    if db.get_bill_by_merchant(conn, sub["merchant_hash"]) is not None:
+        return  # already tracked
+
+    due_day = 1
+    if sub["next_due_date"]:
+        try:
+            due_day = date.fromisoformat(sub["next_due_date"]).day
+        except ValueError:
+            due_day = 1
+    db.insert_bill(
+        conn,
+        sub["merchant_hash"],
+        amount=sub["amount"],
+        due_day=due_day,
+        label=sub["label"] or "Subscription",
+        category="subscription",
+    )
 
 
 def resolve_report(
