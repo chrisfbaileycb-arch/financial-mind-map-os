@@ -1,5 +1,6 @@
 from enum import Enum
 
+
 class BucketType(Enum):
     TAX = "BUCKET_TAX"          # Deferred: IRA, 401k, HSA
     TAXABLE = "BUCKET_TAXABLE"  # Taxable: Brokerage, Savings, Checking

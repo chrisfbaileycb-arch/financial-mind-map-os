@@ -1,0 +1,66 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "financial-mind-map-os"
+version = "0.1.0"
+description = "Local-first, privacy-sovereign financial OS with visual mind-mapping and cash-flow orchestration."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Financial Mind-Map OS contributors" }]
+keywords = ["finance", "budgeting", "local-first", "privacy", "sqlite"]
+dependencies = [
+    "pydantic>=2.0.0",
+    "python-dotenv>=1.0.0",
+    "schedule>=1.2.0",
+    "cryptography>=41.0.0",
+    "fastapi>=0.110.0",
+    "uvicorn[standard]>=0.27.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "ruff>=0.4.0",
+    "httpx>=0.27.0",
+]
+
+[project.scripts]
+fmm = "src.__main__:main"
+
+[tool.setuptools]
+packages = [
+    "src",
+    "src.api",
+    "src.cashflow",
+    "src.credit",
+    "src.db",
+    "src.marketplace",
+    "src.models",
+    "src.sync",
+    "src.utils",
+    "src.visualization",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP", "B"]
+ignore = [
+    "E501",  # line length is handled by the formatter, not enforced hard
+]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI's dependency-injection idiom puts Depends()/Query() in arg defaults.
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Path"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E402"]  # tests may tweak sys.path before importing

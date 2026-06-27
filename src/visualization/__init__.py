@@ -15,7 +15,6 @@ Implementation Strategy:
 """
 
 from dataclasses import dataclass, field
-from typing import List, Dict, Optional
 from enum import Enum
 
 
@@ -42,9 +41,9 @@ class MapNode:
     id: str
     label: str
     node_type: NodeType
-    bucket_type: Optional[str] = None  # BUCKET_TAX, BUCKET_TAXABLE, BUCKET_FREE
+    bucket_type: str | None = None  # BUCKET_TAX, BUCKET_TAXABLE, BUCKET_FREE
     amount: float = 0.0
-    metadata: Dict = field(default_factory=dict)
+    metadata: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -97,7 +96,7 @@ class MapEdge:
     target_id: str
     edge_type: EdgeType
     amount: float = 0.0
-    label: Optional[str] = None
+    label: str | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -124,8 +123,8 @@ class MapEdge:
 @dataclass
 class FinancialMindMap:
     """The complete financial mind map graph."""
-    nodes: List[MapNode] = field(default_factory=list)
-    edges: List[MapEdge] = field(default_factory=list)
+    nodes: list[MapNode] = field(default_factory=list)
+    edges: list[MapEdge] = field(default_factory=list)
 
     def add_node(self, node: MapNode):
         self.nodes.append(node)
@@ -185,3 +184,144 @@ def build_sample_map() -> FinancialMindMap:
     fmap.add_edge(MapEdge("inc_salary", "acc_401k", EdgeType.CONTRIBUTES_TO, 675))
 
     return fmap
+
+
+def build_map_from_db(conn) -> FinancialMindMap:
+    """Build a mind map from live database data.
+
+    Constructs the income → account → bill/subscription flow and links accounts
+    to the household members that own them, using the accounts, paycheck
+    schedules, bills and subscriptions tables.
+    """
+    from src import db
+
+    fmap = FinancialMindMap()
+
+    members = db.get_members(conn)
+    accounts = db.get_accounts(conn)
+    schedules = db.get_paycheck_schedules(conn)
+    bills = db.get_bills(conn)
+    subscriptions = db.get_subscriptions(conn)
+    goals = db.get_goals(conn)
+
+    def member_node_id(member_hash: str) -> str:
+        return f"member_{member_hash[:8]}"
+
+    def account_node_id(account_hash: str) -> str:
+        return f"acct_{account_hash[:8]}"
+
+    for member in members:
+        fmap.add_node(
+            MapNode(
+                member_node_id(member["member_hash"]),
+                (member["role"] or "Member").title(),
+                NodeType.HOUSEHOLD_MEMBER,
+            )
+        )
+
+    # Add accounts; remember the first taxable account as the paying account.
+    paying_account = None
+    for account in accounts:
+        node_id = account_node_id(account["account_hash"])
+        fmap.add_node(
+            MapNode(
+                node_id,
+                account["name"] or "Account",
+                NodeType.ACCOUNT,
+                account["bucket_type"],
+                account["balance"] or 0.0,
+            )
+        )
+        if account["member_hash"]:
+            fmap.add_edge(
+                MapEdge(node_id, member_node_id(account["member_hash"]), EdgeType.OWNED_BY)
+            )
+        if paying_account is None and account["bucket_type"] == "BUCKET_TAXABLE":
+            paying_account = account
+
+    # Income from paycheck schedules flows into the member's first account.
+    for sched in schedules:
+        income_id = f"income_{sched['id']}"
+        amount = sched["pay_amount"] or 0.0
+        fmap.add_node(MapNode(income_id, "Paycheck", NodeType.INCOME, amount=amount))
+        target = next(
+            (a for a in accounts if a["member_hash"] == sched["member_hash"]), None
+        )
+        if target is not None:
+            fmap.add_edge(
+                MapEdge(
+                    income_id,
+                    account_node_id(target["account_hash"]),
+                    EdgeType.CONTRIBUTES_TO,
+                    amount,
+                )
+            )
+        else:
+            fmap.add_edge(
+                MapEdge(
+                    income_id,
+                    member_node_id(sched["member_hash"]),
+                    EdgeType.CONTRIBUTES_TO,
+                    amount,
+                )
+            )
+
+    pay_src = account_node_id(paying_account["account_hash"]) if paying_account else None
+
+    for bill in bills:
+        bill_id = f"bill_{bill['id']}"
+        fmap.add_node(
+            MapNode(bill_id, bill["label"] or "Bill", NodeType.BILL, amount=bill["amount"])
+        )
+        if pay_src:
+            fmap.add_edge(MapEdge(pay_src, bill_id, EdgeType.PAYS_FOR, bill["amount"]))
+
+    for sub in subscriptions:
+        sub_id = f"sub_{sub['id']}"
+        label = sub["label"] or "Subscription"
+        fmap.add_node(MapNode(sub_id, label, NodeType.SUBSCRIPTION, amount=sub["amount"]))
+        if pay_src:
+            fmap.add_edge(MapEdge(pay_src, sub_id, EdgeType.PAYS_FOR, sub["amount"]))
+
+    for goal in goals:
+        goal_id = f"goal_{goal['id']}"
+        progress = 0.0
+        if goal["target_amount"]:
+            progress = round((goal["current_amount"] or 0.0) / goal["target_amount"], 3)
+        fmap.add_node(
+            MapNode(
+                goal_id,
+                goal["label"],
+                NodeType.GOAL,
+                amount=goal["target_amount"],
+                metadata={
+                    "current": goal["current_amount"] or 0.0,
+                    "progress": progress,
+                },
+            )
+        )
+        # Connect a funding account to the goal if one is linked.
+        if goal["account_hash"]:
+            fmap.add_edge(
+                MapEdge(
+                    account_node_id(goal["account_hash"]),
+                    goal_id,
+                    EdgeType.CONTRIBUTES_TO,
+                    goal["current_amount"] or 0.0,
+                )
+            )
+
+    return fmap
+
+
+if __name__ == "__main__":
+    import json
+
+    from src import db
+
+    conn = db.get_connection()
+    try:
+        graph = build_map_from_db(conn).to_graph_data()
+    finally:
+        conn.close()
+    print(json.dumps(graph, indent=2))
