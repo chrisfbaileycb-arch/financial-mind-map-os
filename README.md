@@ -79,6 +79,37 @@ To run the engine on its scheduled heartbeat (every `FMM_HEARTBEAT_HOURS`):
 python -m src run
 ```
 
+### Run the app (API + web UI)
+
+The web app is a React + D3 mind-map with an Approve/Deny/Snooze action inbox,
+served by the FastAPI backend.
+
+```bash
+# 1. Build the frontend bundle (one time, or after UI changes)
+cd frontend && npm install && npm run build && cd ..
+
+# 2. Serve the API + UI on http://127.0.0.1:8000
+python -m src serve
+```
+
+For UI development with hot reload, run the API and Vite dev server in two
+terminals:
+
+```bash
+python -m src serve          # API on :8000
+cd frontend && npm run dev   # UI on :5173, proxies /api to :8000
+```
+
+Key API endpoints (full docs at `/docs` when the server is running):
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `POST` | `/api/sync` | Run a heartbeat, generate the Action Report |
+| `GET`  | `/api/report/latest` | Latest report + items |
+| `POST` | `/api/items/{id}/resolve` | Approve / Deny / Snooze an item |
+| `GET`  | `/api/graph` | Mind-map graph data |
+| `POST` | `/api/{accounts,bills,transactions,members}` | Manual data entry |
+
 ### What the sample data demonstrates
 
 `python -m src sync` runs the wired engine end-to-end against the seeded
@@ -103,10 +134,13 @@ src/
   models/            Shared enums/constants
   cashflow/          Paycheck-to-bill orchestrator (Bill mirrors the bills table)
   sync/              Sync engine, subscription killer, household vigilance
+  actions.py         Action Report Loop resolution (approve/deny/snooze effects)
+  api/               FastAPI app (sync, reports, resolve, graph, data entry)
   credit/            Credit-report helpers (no integration yet)
   marketplace/       Context-aware affiliate recommendations
   visualization/     Mind-map graph builder (sample + live from the DB)
-tests/               pytest suite (db, cashflow, subscriptions, marketplace, …)
+frontend/            React + D3 web UI (mind-map + action inbox)
+tests/               pytest suite (db, cashflow, subscriptions, actions, api, …)
 ```
 
 ## Development
