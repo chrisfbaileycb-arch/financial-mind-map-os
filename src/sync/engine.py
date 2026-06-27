@@ -39,6 +39,8 @@ def detect_subscriptions(conn: sqlite3.Connection, report_id: int) -> int:
     """Run the Subscription Killer and attach cancel suggestions to the report."""
     print(f"[{datetime.now().isoformat()}] Running subscription killer detection...")
     detected = run_subscription_detection(conn)
+    # Map merchant -> persisted subscription id so action items can reference them.
+    sub_ids = {row["merchant_hash"]: row["id"] for row in db.get_subscriptions(conn)}
     for sub in detected:
         name = sub.label or sub.merchant_hash[:8]
         db.add_action_item(
@@ -51,6 +53,8 @@ def detect_subscriptions(conn: sqlite3.Connection, report_id: int) -> int:
             ),
             amount=sub.amount,
             urgency="HIGH" if sub.amount >= 50 else "NORMAL",
+            ref_table="subscriptions",
+            ref_id=sub_ids.get(sub.merchant_hash),
         )
     print(f"  -> {len(detected)} recurring charge series detected.")
     return len(detected)
@@ -69,6 +73,8 @@ def run_cashflow(conn: sqlite3.Connection, report_id: int, today: date) -> int:
             description=f"{name}: {alert.message}",
             amount=alert.bill.amount,
             urgency="CRITICAL" if alert.alert_type == "PAY_NOW" else "NORMAL",
+            ref_table="bills",
+            ref_id=alert.bill.id,
         )
     print(f"  -> {len(alerts)} bill alert(s).")
     return len(alerts)

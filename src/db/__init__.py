@@ -215,10 +215,19 @@ def migrate(conn: sqlite3.Connection | None = None) -> None:
                 status TEXT DEFAULT 'PENDING' CHECK(
                     status IN ('PENDING', 'APPROVED', 'DENIED', 'SNOOZED')
                 ),
+                ref_table TEXT,
+                ref_id INTEGER,
+                resolved_at TIMESTAMP,
+                snooze_until TEXT,
                 FOREIGN KEY (report_id) REFERENCES action_reports(id)
             )
             """
         )
+        # Older databases may predate the resolution/reference columns.
+        _ensure_column(conn, "action_items", "ref_table", "ref_table TEXT")
+        _ensure_column(conn, "action_items", "ref_id", "ref_id INTEGER")
+        _ensure_column(conn, "action_items", "resolved_at", "resolved_at TIMESTAMP")
+        _ensure_column(conn, "action_items", "snooze_until", "snooze_until TEXT")
 
         # --- Sync log ---------------------------------------------------
         cur.execute(
@@ -485,13 +494,16 @@ def add_action_item(
     *,
     amount: float | None = None,
     urgency: str = "NORMAL",
+    ref_table: str | None = None,
+    ref_id: int | None = None,
 ) -> int:
     cur = conn.execute(
         """
-        INSERT INTO action_items (report_id, item_type, description, amount, urgency)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO action_items (
+            report_id, item_type, description, amount, urgency, ref_table, ref_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
-        (report_id, item_type, description, amount, urgency),
+        (report_id, item_type, description, amount, urgency, ref_table, ref_id),
     )
     conn.commit()
     return int(cur.lastrowid)
@@ -513,6 +525,50 @@ def get_action_items(conn: sqlite3.Connection, report_id: int) -> list[sqlite3.R
             (report_id,),
         )
     )
+
+
+def get_action_item(conn: sqlite3.Connection, item_id: int) -> sqlite3.Row | None:
+    return conn.execute(
+        "SELECT * FROM action_items WHERE id = ?", (item_id,)
+    ).fetchone()
+
+
+def get_latest_report(conn: sqlite3.Connection) -> sqlite3.Row | None:
+    return conn.execute(
+        "SELECT * FROM action_reports ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+
+
+def set_action_item_status(
+    conn: sqlite3.Connection,
+    item_id: int,
+    status: str,
+    *,
+    snooze_until: str | None = None,
+) -> None:
+    conn.execute(
+        """
+        UPDATE action_items
+        SET status = ?, resolved_at = CURRENT_TIMESTAMP, snooze_until = ?
+        WHERE id = ?
+        """,
+        (status, snooze_until, item_id),
+    )
+    conn.commit()
+
+
+def set_subscription_status(
+    conn: sqlite3.Connection, subscription_id: int, status: str
+) -> None:
+    conn.execute(
+        "UPDATE subscriptions SET status = ? WHERE id = ?", (status, subscription_id)
+    )
+    conn.commit()
+
+
+def set_bill_status(conn: sqlite3.Connection, bill_id: int, status: str) -> None:
+    conn.execute("UPDATE bills SET status = ? WHERE id = ?", (status, bill_id))
+    conn.commit()
 
 
 def start_sync(conn: sqlite3.Connection, sync_type: str) -> int:

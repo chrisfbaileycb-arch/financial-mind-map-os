@@ -9,6 +9,7 @@ Usage::
     python -m src run         # start the scheduled heartbeat loop
     python -m src graph       # print the mind-map graph as JSON
     python -m src report      # show the latest action report
+    python -m src serve       # start the API server (and UI if built)
 """
 
 from __future__ import annotations
@@ -50,6 +51,17 @@ def _cmd_graph(_args: argparse.Namespace) -> None:
     print(json.dumps(graph, indent=2))
 
 
+def _cmd_serve(args: argparse.Namespace) -> None:
+    import os
+
+    import uvicorn
+
+    host = args.host or os.getenv("FMM_API_HOST", "127.0.0.1")
+    port = args.port or int(os.getenv("FMM_API_PORT", "8000"))
+    print(f"Serving Financial Mind-Map OS API on http://{host}:{port}")
+    uvicorn.run("src.api.app:app", host=host, port=port, reload=args.reload)
+
+
 def _cmd_report(_args: argparse.Namespace) -> None:
     conn = db.get_connection()
     try:
@@ -89,6 +101,12 @@ def main(argv: list[str] | None = None) -> None:
     sub.add_parser("report", help="show the latest action report").set_defaults(
         func=_cmd_report
     )
+
+    serve = sub.add_parser("serve", help="start the API server")
+    serve.add_argument("--host", default=None, help="bind host (default 127.0.0.1)")
+    serve.add_argument("--port", type=int, default=None, help="bind port (default 8000)")
+    serve.add_argument("--reload", action="store_true", help="auto-reload on changes")
+    serve.set_defaults(func=_cmd_serve)
 
     args = parser.parse_args(argv)
     args.func(args)
