@@ -9,7 +9,6 @@ No credit data is stored in the hashed database — it's ephemeral per session.
 """
 
 from dataclasses import dataclass
-from typing import Optional, List
 from datetime import date
 
 
@@ -29,7 +28,7 @@ class CreditSnapshot:
     score_range: str  # e.g., "300-850"
     rating: str  # 'Excellent', 'Good', 'Fair', 'Poor'
     report_date: date
-    factors: List[CreditFactor]
+    factors: list[CreditFactor]
     total_debt: float
     credit_utilization: float  # percentage
     accounts_open: int
@@ -50,7 +49,7 @@ def calculate_rating(score: int) -> str:
         return "Poor"
 
 
-def get_improvement_suggestions(snapshot: CreditSnapshot) -> List[str]:
+def get_improvement_suggestions(snapshot: CreditSnapshot) -> list[str]:
     """Generate actionable suggestions based on credit snapshot."""
     suggestions = []
 

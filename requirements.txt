@@ -6,8 +6,9 @@ schedule>=1.2.0
 # Security
 cryptography>=41.0.0
 
-# Testing
+# Testing & linting
 pytest>=7.0.0
+ruff>=0.4.0
 
 # Future: API layer
 # fastapi>=0.100.0

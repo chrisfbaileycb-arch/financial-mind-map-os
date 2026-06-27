@@ -14,7 +14,6 @@ generated locally based on the user's financial profile.
 """
 
 from dataclasses import dataclass
-from typing import List, Optional
 from enum import Enum
 
 
@@ -36,13 +35,13 @@ class AffiliateProduct:
     description: str
     affiliate_url: str
     disclosure: str
-    min_credit_score: Optional[int] = None
-    max_apr: Optional[float] = None
-    target_demographic: Optional[str] = None
+    min_credit_score: int | None = None
+    max_apr: float | None = None
+    target_demographic: str | None = None
 
 
 # Product catalog — these would be managed via admin panel in production
-PRODUCT_CATALOG: List[AffiliateProduct] = [
+PRODUCT_CATALOG: list[AffiliateProduct] = [
     AffiliateProduct(
         id="lendingtree_refi",
         name="LendingTree",
@@ -91,11 +90,11 @@ PRODUCT_CATALOG: List[AffiliateProduct] = [
 
 
 def get_recommendations(
-    credit_score: Optional[int] = None,
+    credit_score: int | None = None,
     has_high_interest_debt: bool = False,
-    user_age_range: Optional[str] = None,
+    user_age_range: str | None = None,
     total_subscriptions_monthly: float = 0.0
-) -> List[AffiliateProduct]:
+) -> list[AffiliateProduct]:
     """
     Generate contextually relevant product recommendations.
     Only recommends products that match the user's situation.

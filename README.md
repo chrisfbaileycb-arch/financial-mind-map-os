@@ -55,7 +55,66 @@ All PII is SHA-256 hashed with local salt before storage. No raw PII is ever tra
 ## Getting Started
 
 ```bash
-pip install -r requirements.txt
-python -c "from src.db import migrate; migrate()"
-python -m src.sync.engine
+# 1. Install (editable, with dev extras for tests + lint)
+pip install -e ".[dev]"        # or: pip install -r requirements.txt
+
+# 2. Configure (optional — sensible defaults apply)
+cp .env.example .env           # then set a real PII_SALT
+
+# 3. Initialize the database and load sample data
+python -m src migrate
+python -m src seed
+
+# 4. Run a single sync heartbeat and inspect the Action Report
+python -m src sync
+python -m src report
+
+# 5. Export the financial mind-map graph (JSON for a D3/Cytoscape frontend)
+python -m src graph
 ```
+
+To run the engine on its scheduled heartbeat (every `FMM_HEARTBEAT_HOURS`):
+
+```bash
+python -m src run
+```
+
+### What the sample data demonstrates
+
+`python -m src sync` runs the wired engine end-to-end against the seeded
+household:
+
+- **Subscription Killer** detects the recurring Netflix / Spotify / Gym charges
+  and proposes cancellations.
+- **Cash-Flow Orchestrator** flags bills due before the next paycheck as
+  `PAY_NOW` and the rest as `UPCOMING` (auto-pay bills are skipped).
+- **Household Vigilance** flags a member whose month-to-date spend exceeds their
+  limit.
+
+Every finding becomes an **Action Item** on an **Action Report**, awaiting an
+explicit Approve / Deny / Snooze.
+
+## Project Layout
+
+```
+src/
+  config.py          Environment-driven configuration
+  db/                SQLite schema, repository helpers, sample-data seeding
+  models/            Shared enums/constants
+  cashflow/          Paycheck-to-bill orchestrator (Bill mirrors the bills table)
+  sync/              Sync engine, subscription killer, household vigilance
+  credit/            Credit-report helpers (no integration yet)
+  marketplace/       Context-aware affiliate recommendations
+  visualization/     Mind-map graph builder (sample + live from the DB)
+tests/               pytest suite (db, cashflow, subscriptions, marketplace, …)
+```
+
+## Development
+
+```bash
+pip install -e ".[dev]"
+pytest            # run the test suite
+ruff check .      # lint
+```
+
+CI runs lint + tests on Python 3.10–3.12 (see `.github/workflows/ci.yml`).
