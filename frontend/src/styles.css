@@ -68,6 +68,8 @@ html, body, #root {
 }
 .inline-num { width: 90px; }
 .small-num { width: 56px; }
+.cat-input.wide { width: 240px; }
+.filters { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; }
 .btn.small { padding: 4px 9px; font-size: 12px; }
 
 /* Spending bars */

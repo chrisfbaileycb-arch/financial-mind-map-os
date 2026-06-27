@@ -30,8 +30,15 @@ export const api = {
   bills: () => request('/bills'),
   members: () => request('/members'),
   subscriptions: () => request('/subscriptions'),
-  transactions: (limit = 200) => request(`/transactions?limit=${limit}`),
+  transactions: ({ limit = 200, q = '', category = '' } = {}) => {
+    const p = new URLSearchParams({ limit })
+    if (q) p.set('q', q)
+    if (category) p.set('category', category)
+    return request(`/transactions?${p.toString()}`)
+  },
   spending: () => request('/spending'),
+  budgets: () => request('/budgets'),
+  goals: () => request('/goals'),
 
   // Create
   createAccount: (b) => request('/accounts', { method: 'POST', body: JSON.stringify(b) }),
@@ -53,4 +60,12 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ parts }),
     }),
+
+  // Budgets & goals
+  upsertBudget: (b) => request('/budgets', { method: 'PUT', body: JSON.stringify(b) }),
+  deleteBudget: (cat) => request(`/budgets/${encodeURIComponent(cat)}`, { method: 'DELETE' }),
+  createGoal: (b) => request('/goals', { method: 'POST', body: JSON.stringify(b) }),
+  updateGoal: (id, b) =>
+    request(`/goals/${id}`, { method: 'PATCH', body: JSON.stringify(b) }),
+  deleteGoal: (id) => request(`/goals/${id}`, { method: 'DELETE' }),
 }

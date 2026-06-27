@@ -7,14 +7,20 @@ export default function ManageView() {
   const [accounts, setAccounts] = useState([])
   const [bills, setBills] = useState([])
   const [members, setMembers] = useState([])
+  const [budgets, setBudgets] = useState([])
+  const [goals, setGoals] = useState([])
   const [error, setError] = useState(null)
 
   const reload = async () => {
     try {
-      const [a, b, m] = await Promise.all([api.accounts(), api.bills(), api.members()])
+      const [a, b, m, bg, g] = await Promise.all([
+        api.accounts(), api.bills(), api.members(), api.budgets(), api.goals(),
+      ])
       setAccounts(a)
       setBills(b.filter((x) => x.status === 'ACTIVE'))
       setMembers(m)
+      setBudgets(bg)
+      setGoals(g)
     } catch (e) {
       setError(e.message)
     }
@@ -83,6 +89,36 @@ export default function ManageView() {
 
       <Section title="Paycheck schedule">
         <ScheduleForm onAdd={wrap(api.createSchedule)} />
+      </Section>
+
+      <Section title="Budgets">
+        <ul className="mini-list">
+          {budgets.map((b) => (
+            <li key={b.category}>
+              <b>{b.category}</b> · spent ${Number(b.spent).toFixed(2)} / limit $
+              <input className="cat-input inline-num" type="number" defaultValue={b.monthly_limit}
+                onBlur={(e) => wrap(api.upsertBudget)({ category: b.category, monthly_limit: Number(e.target.value) })} />
+              {b.spent > b.monthly_limit && <span className="pill urgency-pill-high">OVER</span>}
+              <button className="btn ghost small" onClick={() => wrap(api.deleteBudget)(b.category)}>Remove</button>
+            </li>
+          ))}
+        </ul>
+        <BudgetForm onAdd={wrap(api.upsertBudget)} />
+      </Section>
+
+      <Section title="Savings goals">
+        <ul className="mini-list">
+          {goals.map((g) => (
+            <li key={g.id}>
+              <b>{g.label}</b> · $
+              <input className="cat-input inline-num" type="number" defaultValue={g.current_amount}
+                onBlur={(e) => wrap(api.updateGoal)(g.id, { current_amount: Number(e.target.value) })} />
+              / ${g.target_amount}
+              <button className="btn ghost small" onClick={() => wrap(api.deleteGoal)(g.id)}>Remove</button>
+            </li>
+          ))}
+        </ul>
+        <GoalForm onAdd={wrap(api.createGoal)} />
       </Section>
     </div>
   )
@@ -167,6 +203,41 @@ function BillForm({ onAdd }) {
       <input placeholder="due day" type="number" value={v.due_day} onChange={set('due_day')} required />
       <input placeholder="late fee" type="number" value={v.late_fee} onChange={set('late_fee')} />
       <input placeholder="category" value={v.category} onChange={set('category')} />
+      <button className="btn primary small" type="submit">Add</button>
+    </form>
+  )
+}
+
+function BudgetForm({ onAdd }) {
+  const [v, set, reset] = useForm({ category: '', monthly_limit: '' })
+  return (
+    <form className="add-form" onSubmit={(e) => {
+      e.preventDefault()
+      onAdd({ category: v.category, monthly_limit: Number(v.monthly_limit) }).then(reset)
+    }}>
+      <input placeholder="category" value={v.category} onChange={set('category')} required />
+      <input placeholder="monthly limit" type="number" value={v.monthly_limit} onChange={set('monthly_limit')} required />
+      <button className="btn primary small" type="submit">Set</button>
+    </form>
+  )
+}
+
+function GoalForm({ onAdd }) {
+  const [v, set, reset] = useForm({ label: '', target_amount: '', current_amount: '', account_id: '' })
+  return (
+    <form className="add-form" onSubmit={(e) => {
+      e.preventDefault()
+      onAdd({
+        label: v.label,
+        target_amount: Number(v.target_amount),
+        current_amount: Number(v.current_amount) || 0,
+        account_id: v.account_id || null,
+      }).then(reset)
+    }}>
+      <input placeholder="goal" value={v.label} onChange={set('label')} required />
+      <input placeholder="target $" type="number" value={v.target_amount} onChange={set('target_amount')} required />
+      <input placeholder="current $" type="number" value={v.current_amount} onChange={set('current_amount')} />
+      <input placeholder="funding account id" value={v.account_id} onChange={set('account_id')} />
       <button className="btn primary small" type="submit">Add</button>
     </form>
   )

@@ -69,9 +69,16 @@ export default function TransactionsView() {
   const [txns, setTxns] = useState([])
   const [splitting, setSplitting] = useState(null)
   const [error, setError] = useState(null)
+  const [q, setQ] = useState('')
+  const [category, setCategory] = useState('')
 
-  const load = () => api.transactions().then(setTxns).catch((e) => setError(e.message))
-  useEffect(() => { load() }, [])
+  const load = () =>
+    api.transactions({ q, category }).then(setTxns).catch((e) => setError(e.message))
+  useEffect(() => {
+    const t = setTimeout(load, 200) // debounce typing
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [q, category])
 
   const saveCategory = async (id, category) => {
     try {
@@ -84,6 +91,25 @@ export default function TransactionsView() {
   return (
     <div className="view">
       <h2>Transactions</h2>
+      <div className="filters">
+        <input
+          className="cat-input wide"
+          placeholder="search description…"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+        />
+        <input
+          className="cat-input"
+          placeholder="filter category"
+          value={category}
+          onChange={(e) => setCategory(e.target.value)}
+        />
+        {(q || category) && (
+          <button className="btn ghost small" onClick={() => { setQ(''); setCategory('') }}>
+            Clear
+          </button>
+        )}
+      </div>
       {error && <div className="error-banner">{error}</div>}
       <table className="data-table">
         <thead>

@@ -19,12 +19,48 @@ function Bars({ title, rows, labelKey, max }) {
   )
 }
 
+function Budgets({ budgets }) {
+  if (budgets.length === 0) {
+    return (
+      <div className="bars">
+        <h3>Budgets</h3>
+        <p className="muted">No budgets yet — add some in Manage.</p>
+      </div>
+    )
+  }
+  return (
+    <div className="bars">
+      <h3>Budgets (this month)</h3>
+      {budgets.map((b) => {
+        const pct = b.monthly_limit ? (b.spent / b.monthly_limit) * 100 : 0
+        const over = b.spent > b.monthly_limit
+        return (
+          <div className="bar-row" key={b.category}>
+            <span className="bar-label">{b.category}</span>
+            <div className="bar-track">
+              <div
+                className="bar-fill"
+                style={{ width: `${Math.min(100, pct)}%`, background: over ? '#d0021b' : '#50c878' }}
+              />
+            </div>
+            <span className="bar-value">
+              ${Number(b.spent).toLocaleString()} / ${Number(b.monthly_limit).toLocaleString()}
+            </span>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 export default function SpendingView() {
   const [data, setData] = useState({ by_month: [], by_category: [] })
+  const [budgets, setBudgets] = useState([])
   const [error, setError] = useState(null)
 
   useEffect(() => {
     api.spending().then(setData).catch((e) => setError(e.message))
+    api.budgets().then(setBudgets).catch(() => {})
   }, [])
 
   const months = [...data.by_month].reverse() // oldest -> newest
@@ -39,6 +75,7 @@ export default function SpendingView() {
         <Bars title="By month" rows={months} labelKey="month" max={monthMax} />
         <Bars title="By category" rows={data.by_category} labelKey="category" max={catMax} />
       </div>
+      <Budgets budgets={budgets} />
     </div>
   )
 }
