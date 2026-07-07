@@ -1,125 +1,126 @@
 # Financial Mind-Map OS
 
-Local-first, privacy-sovereign AI operating system for financial management, featuring visual mind-mapping and intelligent cash-flow orchestration.
+**A local-first, privacy-sovereign personal finance OS** — see your entire
+financial life as an interactive mind-map, catch subscription creep and price
+hikes automatically, align every bill to your paycheck cycle, and track net
+worth marked to real market prices. Nothing happens without your explicit
+Approve / Deny / Snooze.
 
-## Architecture
+> ⚠️ **Disclaimer:** This software is a personal finance organization tool.
+> It does **not** provide financial, investment, tax, or legal advice, and
+> its detections and projections are estimates that may be wrong. See
+> [DISCLAIMER.md](DISCLAIMER.md) before relying on any output.
 
-```
-User → Action Report → [Approve/Deny/Snooze]
-                          ↓
-                    Sync Engine (4h heartbeat)
-                     ↙        ↓        ↘
-            Accounts    Subscriptions   Household
-                     ↘        ↓        ↙
-                    SQLite (PII-Hashed)
-                          ↓
-                Visual Mind-Map UI (Interactive)
-                          ↓
-          Paycheck-to-Bill Cash Flow Orchestrator
-```
+---
 
-## Core Features & Modules
+## Why it's different
 
-### 1. The Engine
-- **Sync Engine:** 4-hour heartbeat-driven account reconciliation.
-- **Action Report Loop:** Every sync requires explicit Approve/Deny/Snooze before any operation.
-- **Subscription Killer:** Predictive recurring fee detection with cancellation alerts.
-- **Shared Vigilance:** Household member relationship graph with spending spike detection.
+| | |
+|---|---|
+| 🧠 **Visual mind-map** | Your accounts, income, bills, and subscriptions as one interactive D3 node graph — see money flow, not just tables. |
+| 🔒 **Privacy-sovereign** | All data in a local SQLite file. PII is SHA-256 hashed with your salt before storage; card/account numbers are stripped from descriptions. No cloud, no telemetry, zero outbound requests unless you opt into a market-data key. |
+| ✅ **The Action Report Loop** | Every finding — urgent bill, price hike, spending spike — becomes a card requiring an explicit **Approve / Deny / Snooze**. The app never acts silently. |
 
-### 2. Intelligent Cash Flow Orchestration
-- **Paycheck-to-Bill Alignment:** Automatically maps upcoming bills against user paycheck cycles (e.g., 15th and 30th). Alerts users if a specific bill must be paid from the *current* paycheck to avoid late fees before the *next* paycheck arrives.
+## Features
 
-### 3. Visual Mind-Map Interface
-- **Interactive Visualization:** A full-screen, node-based interactive map of the user's financial life.
-- **Mobile Full-Screen:** Designed to be viewed comprehensively on mobile devices, allowing visual thinkers to literally "see" their money flow, liabilities, and assets interconnected.
+### The engine
+- **Sync heartbeat** — reconciles and re-analyzes everything on a schedule
+  (default every 4 h) or on demand via **Run Sync**.
+- **Subscription Killer** — detects recurring charges by amount/cadence
+  clustering and asks "Cancel?"; denying promotes the charge to a tracked
+  bill the cash-flow planner can see.
+- **Price-increase alerts** — recognizes a sustained step-up in a recurring
+  charge (*"Netflix went up $2.00 (12.5%) — from $15.99 to $17.99. Accept?"*).
+  Approving syncs the tracked bill so projections use the real price.
+- **Paycheck-to-bill orchestration** — projects ~45 days of cash flow against
+  your paycheck schedule and flags **PAY NOW** when a bill lands before the
+  next check.
+- **Auto-categorization** — learned per-merchant rules first (your inline
+  edits teach it), keyword defaults fill the rest; nothing you set is ever
+  overwritten.
+- **Shared Vigilance** — per-member spending baselines and limits with
+  spike / over-limit alerts for the household.
+- **Budgets & goals** — category budgets with overrun flags; savings goals
+  with monthly contributions and funded celebrations.
 
-### 4. Financial Health & Monetization Engine
-- **Credit Report Integration:** Built-in free credit report tracking to show users their current standing.
-- **Curated Affiliate Marketplace:** Context-aware recommendations for financial improvement:
-  - Refinancing options (e.g., LendingTree) when high-interest debt is detected.
-  - Micro-investing apps (round-up spending to invest) targeting younger demographics.
-  - *Note: This serves as the primary revenue model while keeping the core app free/low-cost.*
+### Investments
+- **Holdings** — positions (symbol, quantity, cost basis) attached to
+  accounts; net worth, snapshots, and the mind-map all mark them to market.
+- **Live prices (optional)** — plug in a free [Finnhub](https://finnhub.io)
+  or [Alpha Vantage](https://www.alphavantage.co) API key and every sync
+  refreshes quotes; a held symbol moving ≥ 5% raises a portfolio alert. With
+  no key the app stays fully offline and values fall back to cost basis.
 
-## Three-Bucket Strategy
+### The app
+Six views served by one FastAPI process: **Map** (mind-map + action inbox),
+**Net Worth** (three tax buckets, holdings, history), **Cash Flow**
+(paycheck-to-bill timeline), **Transactions** (inline categorize + split),
+**Spending** (by month/category + budgets), **Manage** (accounts, bills,
+schedules, members), plus **CSV import** with column mapping.
 
-| Bucket | Tax Treatment | Examples |
-|--------|--------------|----------|
-| BUCKET_TAX | Deferred | IRA, 401k, HSA |
-| BUCKET_TAXABLE | Taxable | Brokerage, Savings, Checking |
-| BUCKET_FREE | Exempt | Roth IRA, 529, Municipal Bonds |
-
-## Privacy
-
-All PII is SHA-256 hashed with local salt before storage. No raw PII is ever transmitted. Descriptions are tokenized to safe keywords only.
-
-## Getting Started
-
-```bash
-# 1. Install (editable, with dev extras for tests + lint)
-pip install -e ".[dev]"        # or: pip install -r requirements.txt
-
-# 2. Configure (optional — sensible defaults apply)
-cp .env.example .env           # then set a real PII_SALT
-
-# 3. Initialize the database and load sample data
-python -m src migrate
-python -m src seed
-
-# 4. Run a single sync heartbeat and inspect the Action Report
-python -m src sync
-python -m src report
-
-# 5. Export the financial mind-map graph (JSON for a D3/Cytoscape frontend)
-python -m src graph
-```
-
-To run the engine on its scheduled heartbeat (every `FMM_HEARTBEAT_HOURS`):
+## Quick start
 
 ```bash
-python -m src run
+git clone https://github.com/chrisfbaileycb-arch/financial-mind-map-os
+cd financial-mind-map-os
+make demo        # install + build UI + seed sample data + serve
+# open http://127.0.0.1:8000
 ```
 
-### Run the app (API + web UI)
-
-The web app is a React + D3 mind-map with an Approve/Deny/Snooze action inbox,
-plus **Transactions**, **Spending**, and **Manage** views, served by the
-FastAPI backend.
-
-Fastest path — one command (install + build UI + seed + serve):
+Step by step instead:
 
 ```bash
-make demo            # then open http://127.0.0.1:8000
+pip install -e ".[dev]"                # Python engine + dev tools
+cp .env.example .env                   # then set a real PII_SALT (required!)
+cd frontend && npm install && npm run build && cd ..
+python -m src seed                     # optional: sample household
+python -m src serve                    # http://127.0.0.1:8000
 ```
 
-Or step by step:
+> **Before storing real data:** set a unique `PII_SALT` in `.env`
+> (`python -c "import secrets; print(secrets.token_hex(32))"`). The server
+> warns at startup while the default salt is in place.
+
+### Load your own data
+
+Click **Import CSV**, pick a bank/card export, and map the columns (date,
+amount or debit/credit, description). Accounts are created automatically,
+descriptions are tokenized and PII-hashed, and detection runs immediately.
+Sample files live in [`examples/`](examples/).
+
+### Common commands
 
 ```bash
-# 1. Build the frontend bundle (one time, or after UI changes)
-cd frontend && npm install && npm run build && cd ..    # or: make ui
-
-# 2. Serve the API + UI on http://127.0.0.1:8000
-python -m src serve                                     # or: make serve
+make help        # all targets
+make test        # pytest suite
+make lint        # ruff
+python -m src sync      # one heartbeat, prints the Action Report
+python -m src run       # scheduled heartbeat loop
+python -m src graph     # mind-map graph JSON
 ```
 
-The app has four views:
+## Configuration
 
-- **Map** — the financial mind-map + the Approve/Deny/Snooze action inbox.
-- **Transactions** — categorize inline and split a charge across categories.
-- **Spending** — totals by month and by category.
-- **Manage** — add/edit accounts, bills, paycheck schedules, and members.
+Everything is environment-driven (see [`.env.example`](.env.example) for the
+full annotated list):
 
-Try it without your own data using the sample CSVs in [`examples/`](examples/)
-via **Import CSV**.
+| Variable | Default | Purpose |
+|---|---|---|
+| `PII_SALT` | *(dev-only default)* | Salt for PII hashing — **set your own**. |
+| `FMM_DB_PATH` | `financial_os.db` | SQLite file location. |
+| `FMM_API_HOST` / `FMM_API_PORT` | `127.0.0.1` / `8000` | Server bind (localhost-only by default). |
+| `FMM_CORS_ORIGINS` | localhost origins | Allowed browser origins. |
+| `FMM_HEARTBEAT_HOURS` | `4` | Sync cadence for `python -m src run`. |
+| `FMM_SUB_*` | see file | Subscription-detection tuning. |
+| `FMM_SUB_PRICE_INCREASE_*` | `$0.50` / `3%` | Price-hike alert thresholds. |
+| `FMM_MARKET_DATA_PROVIDER` | `auto` | `finnhub` / `alphavantage` / `none`. |
+| `FMM_FINNHUB_API_KEY` etc. | *(empty)* | Enables live quotes when set. |
+| `FMM_PORTFOLIO_MOVE_ALERT_PCT` | `5` | Portfolio-alert threshold. |
+| `FMM_HOUSEHOLD_SPIKE_FACTOR` | `1.5` | Spending-spike sensitivity. |
 
-For UI development with hot reload, run the API and Vite dev server in two
-terminals:
+## API
 
-```bash
-python -m src serve          # API on :8000
-cd frontend && npm run dev   # UI on :5173, proxies /api to :8000
-```
-
-Key API endpoints (full docs at `/docs` when the server is running):
+Full interactive docs at `/docs` while the server runs. Highlights:
 
 | Method | Path | Purpose |
 |--------|------|---------|
@@ -127,56 +128,61 @@ Key API endpoints (full docs at `/docs` when the server is running):
 | `GET`  | `/api/report/latest` | Latest report + items |
 | `POST` | `/api/items/{id}/resolve` | Approve / Deny / Snooze an item |
 | `GET`  | `/api/graph` | Mind-map graph data |
-| `POST` | `/api/{accounts,bills,transactions,members}` | Manual data entry |
-| `POST` | `/api/import/csv` | Import transactions from a bank/card CSV |
+| `GET/POST/PATCH/DELETE` | `/api/holdings` | Investment positions |
+| `POST` | `/api/holdings/refresh` | Mark holdings to market |
+| `GET`  | `/api/networth` | Buckets, totals, history |
+| `POST` | `/api/import/csv` | Import transactions |
+| `GET/POST/PATCH` | `/api/{accounts,bills,transactions,members,budgets,goals}` | Manual data management |
 
-### Loading your own data (CSV import)
-
-Click **Import CSV** in the app, pick a bank/card export, and map the columns
-(date, amount or separate debit/credit, description). On import, the account is
-created automatically, transactions are stored (PII tokenized/hashed), and the
-Subscription Killer runs so recurring charges show up immediately. Everything
-stays in your local SQLite database.
-
-### What the sample data demonstrates
-
-`python -m src sync` runs the wired engine end-to-end against the seeded
-household:
-
-- **Subscription Killer** detects the recurring Netflix / Spotify / Gym charges
-  and proposes cancellations.
-- **Cash-Flow Orchestrator** flags bills due before the next paycheck as
-  `PAY_NOW` and the rest as `UPCOMING` (auto-pay bills are skipped).
-- **Household Vigilance** flags a member whose month-to-date spend exceeds their
-  limit.
-
-Every finding becomes an **Action Item** on an **Action Report**, awaiting an
-explicit Approve / Deny / Snooze.
-
-## Project Layout
+## Architecture
 
 ```
-src/
-  config.py          Environment-driven configuration
-  db/                SQLite schema, repository helpers, sample-data seeding
-  models/            Shared enums/constants
-  cashflow/          Paycheck-to-bill orchestrator (Bill mirrors the bills table)
-  sync/              Sync engine, subscription killer, household vigilance
-  actions.py         Action Report Loop resolution (approve/deny/snooze effects)
-  api/               FastAPI app (sync, reports, resolve, graph, data entry)
-  credit/            Credit-report helpers (no integration yet)
-  marketplace/       Context-aware affiliate recommendations
-  visualization/     Mind-map graph builder (sample + live from the DB)
-frontend/            React + D3 web UI (mind-map + action inbox)
-tests/               pytest suite (db, cashflow, subscriptions, actions, api, …)
+User → Action Report → [Approve / Deny / Snooze]
+                          ↓
+                 Sync Engine (4 h heartbeat)
+        ┌──────────┬──────────┼───────────┬─────────────┐
+   Subscriptions  Price    Cash-Flow   Household    Portfolio
+     (killer)    changes  orchestrator  vigilance  (market data*)
+        └──────────┴──────────┼───────────┴─────────────┘
+                    SQLite (PII-hashed, local)
+                          ↓
+        FastAPI ── React + D3 mind-map UI (6 views)
+
+* optional; requires a market-data API key
 ```
 
-## Development
+**Three-bucket strategy** for tax-aware organization (not tax advice):
+
+| Bucket | Treatment | Examples |
+|--------|-----------|----------|
+| `BUCKET_TAX` | Deferred | IRA, 401(k), HSA |
+| `BUCKET_TAXABLE` | Taxable | Brokerage, Savings, Checking |
+| `BUCKET_FREE` | Exempt | Roth IRA, 529, Municipal bonds |
+
+## Security
+
+Local-first by design: localhost-only binding, CORS allowlist, security
+headers, parameterized SQL, validated inputs, PII hashing, and no outbound
+traffic unless you configure a market-data key. There is intentionally **no
+authentication layer yet** — do not expose the server to the internet. Full
+posture and reporting policy: [SECURITY.md](SECURITY.md).
+
+## Testing
 
 ```bash
-pip install -e ".[dev]"
-pytest            # run the test suite
-ruff check .      # lint
+make test    # 120+ tests: engine heuristics, cash flow, API, importer, security
+make lint    # ruff
 ```
 
-CI runs lint + tests on Python 3.10–3.12 (see `.github/workflows/ci.yml`).
+## Roadmap
+
+See [ROADMAP.md](ROADMAP.md) — next up: bank aggregation (Plaid/Teller),
+consent-based household linking with alert fan-out, brokerage sync
+(SnapTrade), deployment packaging, and the affiliate marketplace.
+
+## Legal
+
+- [LICENSE](LICENSE) — proprietary; all rights reserved.
+- [DISCLAIMER.md](DISCLAIMER.md) — not financial advice; read before relying
+  on any output.
+- [SECURITY.md](SECURITY.md) — security posture and vulnerability reporting.

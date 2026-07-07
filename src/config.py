@@ -46,6 +46,20 @@ DB_PATH = get_db_path()
 # SHA-256 salt for hashing PII. MUST be overridden in production via PII_SALT.
 PII_SALT = os.getenv("PII_SALT", "default_local_salt_do_not_use_in_prod")
 
+# --- API ---------------------------------------------------------------------
+
+# Comma-separated list of allowed browser origins for the API. Defaults cover
+# the local UI and the Vite dev server; extend only if you host the UI elsewhere.
+CORS_ORIGINS = [
+    o.strip()
+    for o in os.getenv(
+        "FMM_CORS_ORIGINS",
+        "http://127.0.0.1:8000,http://localhost:8000,"
+        "http://127.0.0.1:5173,http://localhost:5173",
+    ).split(",")
+    if o.strip()
+]
+
 # --- Sync engine -----------------------------------------------------------
 
 HEARTBEAT_HOURS = int(os.getenv("FMM_HEARTBEAT_HOURS", "4"))

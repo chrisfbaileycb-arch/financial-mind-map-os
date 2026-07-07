@@ -2,9 +2,20 @@
 
 from __future__ import annotations
 
+from datetime import date as _date
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+
+def _validate_iso_date(value: str) -> str:
+    """Reject non-ISO dates before they can reach storage.
+
+    A malformed date would otherwise poison downstream date parsing (e.g.
+    recurring-charge detection during sync).
+    """
+    _date.fromisoformat(value)
+    return value
 
 BucketType = Literal["BUCKET_TAX", "BUCKET_TAXABLE", "BUCKET_FREE"]
 
@@ -33,18 +44,20 @@ class AccountCreate(BaseModel):
 
 class HoldingCreate(BaseModel):
     account_hash: str = Field(description="Hash of the account holding the position.")
-    symbol: str
+    symbol: str = Field(pattern=r"^[A-Za-z0-9.\-]{1,12}$")
     quantity: float = Field(gt=0)
-    cost_basis: float | None = Field(default=None, description="Per-share cost basis.")
-    last_price: float | None = None
-    label: str | None = None
+    cost_basis: float | None = Field(
+        default=None, ge=0, description="Per-share cost basis."
+    )
+    last_price: float | None = Field(default=None, ge=0)
+    label: str | None = Field(default=None, max_length=120)
 
 
 class HoldingUpdate(BaseModel):
     quantity: float | None = Field(default=None, gt=0)
-    cost_basis: float | None = None
-    last_price: float | None = None
-    label: str | None = None
+    cost_basis: float | None = Field(default=None, ge=0)
+    last_price: float | None = Field(default=None, ge=0)
+    label: str | None = Field(default=None, max_length=120)
 
 
 class BillCreate(BaseModel):
@@ -66,6 +79,8 @@ class TransactionCreate(BaseModel):
     member_id: str | None = None
     description: str | None = None
     bucket_type: BucketType | None = None
+
+    _check_date = field_validator("date")(_validate_iso_date)
 
 
 class PaycheckScheduleCreate(BaseModel):
@@ -110,6 +125,13 @@ class TransactionUpdate(BaseModel):
     category: str | None = None
     bucket_type: BucketType | None = None
 
+    @field_validator("date")
+    @classmethod
+    def _check_date(cls, value: str | None) -> str | None:
+        if value is not None:
+            _validate_iso_date(value)
+        return value
+
 
 class SplitPart(BaseModel):
     amount: float
@@ -144,6 +166,9 @@ class GoalUpdate(BaseModel):
 class CsvImportRequest(BaseModel):
     account_id: str = Field(description="Raw account identifier; hashed before storage.")
     member_id: str | None = None
-    csv_text: str = Field(description="Raw CSV file contents, including the header row.")
+    csv_text: str = Field(
+        max_length=5_000_000,  # ~5 MB guardrail against runaway payloads
+        description="Raw CSV file contents, including the header row.",
+    )
     mapping: ColumnMappingModel
     run_detection: bool = True

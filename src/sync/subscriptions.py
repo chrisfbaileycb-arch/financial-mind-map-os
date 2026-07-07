@@ -261,11 +261,15 @@ def load_charges(conn: sqlite3.Connection) -> list[ChargeRecord]:
     for row in db.get_transactions(conn, only_debits=True):
         if not row["merchant_hash"]:
             continue
+        try:
+            charge_date = _parse_date(row["date"])
+        except ValueError:
+            continue  # one malformed row must not break the whole sync
         charges.append(
             ChargeRecord(
                 merchant_hash=row["merchant_hash"],
                 amount=abs(row["amount"]),
-                charge_date=_parse_date(row["date"]),
+                charge_date=charge_date,
                 label=row["description_tokens"],
             )
         )

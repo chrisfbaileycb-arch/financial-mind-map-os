@@ -251,3 +251,11 @@ html, body, #root {
     border-top: 1px solid var(--border);
   }
 }
+
+/* Legal footer */
+.app-footer {
+  padding: 10px 24px 16px;
+  font-size: 0.72rem;
+  text-align: center;
+  opacity: 0.6;
+}
