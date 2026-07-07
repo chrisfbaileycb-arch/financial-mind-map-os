@@ -161,6 +161,7 @@ def import_transactions(
     ``run_detection``) how many recurring subscriptions were detected after.
     """
     from src import db
+    from src.categorize import run_auto_categorization
     from src.sync.subscriptions import run_subscription_detection
 
     parsed = parse_csv(text, mapping)
@@ -194,8 +195,10 @@ def import_transactions(
         )
         imported += 1
 
-    # Auto-categorize imported rows from previously learned merchant rules.
+    # Auto-categorize imported rows: learned merchant rules first (user
+    # intent wins), then keyword defaults for whatever is still blank.
     db.apply_category_rules(conn)
+    run_auto_categorization(conn)
 
     detected = 0
     if run_detection and imported:

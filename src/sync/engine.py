@@ -17,6 +17,7 @@ import schedule
 
 from src import config, db
 from src.cashflow import analyze_bills_from_db
+from src.categorize import run_auto_categorization
 from src.sync.household import run_household_vigilance
 from src.sync.subscriptions import (
     run_price_increase_detection,
@@ -36,6 +37,15 @@ def sync_accounts(conn: sqlite3.Connection) -> int:
         "(no external source configured)..."
     )
     return 0
+
+
+def auto_categorize(conn: sqlite3.Connection) -> int:
+    """Categorize transactions: learned merchant rules, then keyword defaults."""
+    print(f"[{datetime.now().isoformat()}] Auto-categorizing transactions...")
+    db.apply_category_rules(conn)  # user-learned rules take precedence
+    count = run_auto_categorization(conn)
+    print(f"  -> {count} transaction(s) categorized.")
+    return count
 
 
 def detect_subscriptions(conn: sqlite3.Connection, report_id: int) -> int:
@@ -211,6 +221,7 @@ def heartbeat(
 
     try:
         sync_accounts(conn)
+        n_categorized = auto_categorize(conn)
         n_subs = detect_subscriptions(conn, report_id)
         n_price = detect_price_increases(conn, report_id)
         n_bills = run_cashflow(conn, report_id, today)
@@ -235,6 +246,7 @@ def heartbeat(
         print("--- Heartbeat Complete ---\n")
         return {
             "report_id": report_id,
+            "categorized": n_categorized,
             "subscriptions": n_subs,
             "price_increases": n_price,
             "bills": n_bills,
