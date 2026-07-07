@@ -111,3 +111,40 @@ def test_resolve_report_resolves_all_pending(seeded_conn):
         if i["status"] == "PENDING"
     ]
     assert remaining == []
+
+
+def test_approving_price_increase_updates_tracked_bill(seeded_conn):
+    # Track Netflix as a bill at the old price, then accept the increase.
+    merchant = db.hash_pii("Netflix")
+    bill_id = db.insert_bill(
+        seeded_conn, merchant, amount=15.99, due_day=15,
+        label="Netflix", category="subscription",
+    )
+
+    summary = heartbeat(seeded_conn, today=date(2026, 6, 27))
+    price_item = _items_by_type(seeded_conn, summary["report_id"], "PRICE_INCREASE")[0]
+    assert "15.99" in price_item["description"]
+    assert "17.99" in price_item["description"]
+
+    actions.resolve_action_item(seeded_conn, price_item["id"], "APPROVED")
+    bill = seeded_conn.execute(
+        "SELECT amount FROM bills WHERE id = ?", (bill_id,)
+    ).fetchone()
+    assert abs(bill["amount"] - 17.99) < 0.01
+
+
+def test_denying_price_increase_leaves_bill_untouched(seeded_conn):
+    merchant = db.hash_pii("Netflix")
+    bill_id = db.insert_bill(
+        seeded_conn, merchant, amount=15.99, due_day=15,
+        label="Netflix", category="subscription",
+    )
+
+    summary = heartbeat(seeded_conn, today=date(2026, 6, 27))
+    price_item = _items_by_type(seeded_conn, summary["report_id"], "PRICE_INCREASE")[0]
+
+    actions.resolve_action_item(seeded_conn, price_item["id"], "DENIED")
+    bill = seeded_conn.execute(
+        "SELECT amount FROM bills WHERE id = ?", (bill_id,)
+    ).fetchone()
+    assert abs(bill["amount"] - 15.99) < 0.01

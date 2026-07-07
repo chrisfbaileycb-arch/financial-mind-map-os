@@ -38,12 +38,16 @@ export const api = {
   },
   spending: () => request('/spending'),
   networth: () => request('/networth'),
+  holdings: () => request('/holdings'),
   cashflow: () => request('/cashflow'),
   budgets: () => request('/budgets'),
   goals: () => request('/goals'),
 
   // Create
   createAccount: (b) => request('/accounts', { method: 'POST', body: JSON.stringify(b) }),
+  createHolding: (b) => request('/holdings', { method: 'POST', body: JSON.stringify(b) }),
+  deleteHolding: (id) => request(`/holdings/${id}`, { method: 'DELETE' }),
+  refreshPrices: () => request('/holdings/refresh', { method: 'POST' }),
   createBill: (b) => request('/bills', { method: 'POST', body: JSON.stringify(b) }),
   createMember: (b) => request('/members', { method: 'POST', body: JSON.stringify(b) }),
   createSchedule: (b) =>

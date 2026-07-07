@@ -12,21 +12,27 @@ def test_heartbeat_produces_action_report(seeded_conn):
     summary = heartbeat(seeded_conn, today=date(2026, 6, 27))
 
     assert summary["subscriptions"] == 3
+    assert summary["price_increases"] == 1  # seeded Netflix hike
     assert summary["bills"] == 3  # internet is auto-pay and excluded
     assert summary["household"] == 1
-    assert summary["total_items"] == 7
+    assert summary["total_items"] == 8
 
     items = db.get_action_items(seeded_conn, summary["report_id"])
-    assert len(items) == 7
+    assert len(items) == 8
     item_types = {i["item_type"] for i in items}
-    assert item_types == {"SUBSCRIPTION_CANCEL", "BILL_PAYMENT", "SPENDING_ALERT"}
+    assert item_types == {
+        "SUBSCRIPTION_CANCEL",
+        "PRICE_INCREASE",
+        "BILL_PAYMENT",
+        "SPENDING_ALERT",
+    }
 
 
 def test_heartbeat_logs_sync(seeded_conn):
     heartbeat(seeded_conn, today=date(2026, 6, 27))
     rows = list(seeded_conn.execute("SELECT * FROM sync_log ORDER BY id DESC LIMIT 1"))
     assert rows[0]["status"] == "COMPLETE"
-    assert rows[0]["items_processed"] == 7
+    assert rows[0]["items_processed"] == 8
 
 
 def test_heartbeat_on_empty_db_is_safe(conn):

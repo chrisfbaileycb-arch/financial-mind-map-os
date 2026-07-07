@@ -25,11 +25,11 @@ def test_health(client):
 
 def test_sync_and_latest_report(client):
     summary = client.post("/api/sync").json()
-    assert summary["total_items"] == 7
+    assert summary["total_items"] == 8
 
     latest = client.get("/api/report/latest").json()
     assert latest["report"]["id"] == summary["report_id"]
-    assert len(latest["items"]) == 7
+    assert len(latest["items"]) == 8
 
 
 def test_resolve_item_via_api(client):

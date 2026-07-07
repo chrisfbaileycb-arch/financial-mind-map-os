@@ -47,6 +47,7 @@ def _reset(conn: sqlite3.Connection) -> None:
         "sync_log",
         "budgets",
         "goals",
+        "holdings",
         "balance_snapshots",
     ):
         conn.execute(f"DELETE FROM {table}")
@@ -87,8 +88,20 @@ def seed_database(
         roth = db.hash_pii("roth-3456")
         db.upsert_account(conn, checking, "Checking", "BUCKET_TAXABLE", 2300.0, primary)
         db.upsert_account(conn, savings, "Savings", "BUCKET_TAXABLE", 8500.0, primary)
-        db.upsert_account(conn, retirement, "401(k)", "BUCKET_TAX", 45000.0, primary)
-        db.upsert_account(conn, roth, "Roth IRA", "BUCKET_FREE", 12000.0, partner)
+        # Investment accounts: cash balance + holdings (below) = same totals
+        # as before ($45,000 and $12,000), now marked to market.
+        db.upsert_account(conn, retirement, "401(k)", "BUCKET_TAX", 11250.0, primary)
+        db.upsert_account(conn, roth, "Roth IRA", "BUCKET_FREE", 4000.0, partner)
+
+        # --- Holdings ----------------------------------------------------
+        db.upsert_holding(
+            conn, retirement, "VTI", 150.0,
+            cost_basis=210.00, last_price=225.00, label="Total Market ETF",
+        )
+        db.upsert_holding(
+            conn, roth, "VOO", 20.0,
+            cost_basis=380.00, last_price=400.00, label="S&P 500 ETF",
+        )
 
         # --- Paycheck schedules ----------------------------------------
         db.insert_paycheck_schedule(conn, primary, pay_day_1=15, pay_day_2=30, pay_amount=2250.0)
@@ -135,20 +148,23 @@ def seed_database(
         )
 
         # --- Recurring charges (the Subscription Killer should catch) ---
+        # The optional fourth element is a price hike applied to the most
+        # recent charge, so price-increase detection has something to find.
         recurring = [
-            ("Netflix", "NETFLIX.COM 4567", 15.99),
-            ("Spotify", "SPOTIFY P0F23A", 10.99),
-            ("City Gym", "CITY GYM #221", 49.99),
+            ("Netflix", "NETFLIX.COM 4567", 15.99, 17.99),
+            ("Spotify", "SPOTIFY P0F23A", 10.99, None),
+            ("City Gym", "CITY GYM #221", 49.99, None),
         ]
-        for name, raw_desc, amount in recurring:
+        for name, raw_desc, amount, new_amount in recurring:
             merchant_hash = db.hash_pii(name)
             tokens = db.tokenize_description(raw_desc)
             for i in range(6, 0, -1):  # six months of history up to last month
                 charge_date = _months_back(today, i)
+                charge_amount = new_amount if (new_amount and i == 1) else amount
                 db.insert_transaction(
                     conn,
                     account_hash=checking,
-                    amount=-amount,
+                    amount=-charge_amount,
                     date=charge_date.isoformat(),
                     merchant_hash=merchant_hash,
                     member_hash=primary,
