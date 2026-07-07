@@ -53,6 +53,20 @@ class DetectedSubscription:
     label: str | None = None
 
 
+@dataclass
+class PriceIncrease:
+    """A sustained step-up in a recurring charge's price."""
+
+    merchant_hash: str
+    old_amount: float
+    new_amount: float
+    increase: float
+    pct_increase: float
+    new_charges: int  # how many charges have landed at the new price
+    last_charge_date: date
+    label: str | None = None
+
+
 def classify_frequency(interval_days: int, tolerance_days: int) -> str:
     """Map a median interval (in days) to a human-readable cadence label."""
     best_days, best_label = min(
@@ -65,38 +79,70 @@ def classify_frequency(interval_days: int, tolerance_days: int) -> str:
     return f"every {interval_days} days"
 
 
-def detect_recurring(
+def _amounts_cluster(amounts: list[float], tolerance: float) -> float | None:
+    """Return the cluster median if all ``amounts`` sit within tolerance of it.
+
+    "Within tolerance" means within ``tolerance`` relative or $1 absolute of
+    the median — the same rule the original detector used.
+    """
+    med = median(amounts)
+    if med <= 0:
+        return None
+    allowed = max(tolerance * med, 1.0)
+    if any(abs(a - med) > allowed for a in amounts):
+        return None
+    return med
+
+
+def _find_single_step(amounts: list[float], tolerance: float) -> int | None:
+    """Return the index of the one place ``amounts`` jumps, else ``None``.
+
+    A jump is a consecutive-pair difference beyond tolerance. Exactly one jump
+    means "stable old price, then stable new price" — a price change. Zero or
+    multiple jumps mean the series is either stable or genuinely irregular.
+    """
+    jumps = [
+        i
+        for i in range(1, len(amounts))
+        if abs(amounts[i] - amounts[i - 1]) > max(tolerance * amounts[i - 1], 1.0)
+    ]
+    return jumps[0] if len(jumps) == 1 else None
+
+
+def analyze_charges(
     charges: list[ChargeRecord],
     *,
     min_occurrences: int = config.SUB_MIN_OCCURRENCES,
     amount_tolerance: float = config.SUB_AMOUNT_TOLERANCE,
     interval_tolerance_days: int = config.SUB_INTERVAL_TOLERANCE_DAYS,
-) -> list[DetectedSubscription]:
-    """Identify recurring charge series among ``charges``.
+    price_increase_min_abs: float = config.SUB_PRICE_INCREASE_MIN_ABS,
+    price_increase_min_rel: float = config.SUB_PRICE_INCREASE_MIN_REL,
+    price_min_new_charges: int = config.SUB_PRICE_MIN_NEW_CHARGES,
+) -> tuple[list[DetectedSubscription], list[PriceIncrease]]:
+    """Identify recurring charge series and price changes among ``charges``.
 
-    A merchant's charges qualify when there are at least ``min_occurrences`` of
-    them, the amounts cluster around a median (within ``amount_tolerance``
-    relative or $1 absolute), and the gaps between consecutive charges are
-    regular (within ``interval_tolerance_days`` of their median).
+    A merchant's charges qualify as recurring when there are at least
+    ``min_occurrences`` of them and the gaps between consecutive charges are
+    regular (within ``interval_tolerance_days`` of their median). Amounts must
+    either cluster around one median (within ``amount_tolerance`` relative or
+    $1 absolute) — a stable subscription — or form exactly two stable clusters
+    split at a single step: an established price followed by a new price. The
+    stepped case still counts as a subscription (tracked at the *new* price)
+    and, when the step is upward by at least
+    ``max(price_increase_min_abs, price_increase_min_rel * old)``, also raises
+    a :class:`PriceIncrease`.
     """
     by_merchant: dict[str, list[ChargeRecord]] = defaultdict(list)
     for charge in charges:
         by_merchant[charge.merchant_hash].append(charge)
 
     detected: list[DetectedSubscription] = []
+    increases: list[PriceIncrease] = []
     for merchant_hash, group in by_merchant.items():
         if len(group) < min_occurrences:
             continue
 
         group = sorted(group, key=lambda c: c.charge_date)
-
-        amounts = [c.amount for c in group]
-        med_amount = median(amounts)
-        if med_amount <= 0:
-            continue
-        allowed = max(amount_tolerance * med_amount, 1.0)
-        if any(abs(a - med_amount) > allowed for a in amounts):
-            continue
 
         gaps = [
             (group[i].charge_date - group[i - 1].charge_date).days
@@ -110,12 +156,48 @@ def detect_recurring(
         if any(abs(g - med_gap) > interval_tolerance_days for g in gaps):
             continue
 
+        amounts = [c.amount for c in group]
+        increase: PriceIncrease | None = None
+        sub_amount = _amounts_cluster(amounts, amount_tolerance)
+        if sub_amount is None:
+            # Not one stable cluster — check for a single price step instead.
+            step = _find_single_step(amounts, amount_tolerance)
+            if step is None or step < min_occurrences:
+                continue  # irregular amounts, or no established baseline
+            old_amount = _amounts_cluster(amounts[:step], amount_tolerance)
+            new_amount = _amounts_cluster(amounts[step:], amount_tolerance)
+            if old_amount is None or new_amount is None:
+                continue
+            if len(amounts) - step < price_min_new_charges:
+                # New price not confirmed yet — keep tracking the old price.
+                sub_amount = old_amount
+                new_amount = None
+            else:
+                # Track the subscription at its current (new) price.
+                sub_amount = new_amount
+            delta = (new_amount - old_amount) if new_amount is not None else 0.0
+            if new_amount is not None and delta >= max(
+                price_increase_min_abs, price_increase_min_rel * old_amount
+            ):
+                increase = PriceIncrease(
+                    merchant_hash=merchant_hash,
+                    old_amount=round(old_amount, 2),
+                    new_amount=round(new_amount, 2),
+                    increase=round(delta, 2),
+                    pct_increase=round(100 * delta / old_amount, 1),
+                    new_charges=len(amounts) - step,
+                    last_charge_date=group[-1].charge_date,
+                    label=next(
+                        (c.label for c in reversed(group) if c.label), None
+                    ),
+                )
+
         last_charge = group[-1].charge_date
         label = next((c.label for c in reversed(group) if c.label), None)
         detected.append(
             DetectedSubscription(
                 merchant_hash=merchant_hash,
-                amount=round(med_amount, 2),
+                amount=round(sub_amount, 2),
                 frequency=classify_frequency(med_gap, interval_tolerance_days),
                 interval_days=med_gap,
                 occurrences=len(group),
@@ -124,9 +206,46 @@ def detect_recurring(
                 label=label,
             )
         )
+        if increase is not None:
+            increases.append(increase)
 
     detected.sort(key=lambda d: d.amount, reverse=True)
+    increases.sort(key=lambda p: p.increase, reverse=True)
+    return detected, increases
+
+
+def detect_recurring(
+    charges: list[ChargeRecord],
+    *,
+    min_occurrences: int = config.SUB_MIN_OCCURRENCES,
+    amount_tolerance: float = config.SUB_AMOUNT_TOLERANCE,
+    interval_tolerance_days: int = config.SUB_INTERVAL_TOLERANCE_DAYS,
+) -> list[DetectedSubscription]:
+    """Identify recurring charge series among ``charges`` (see analyze_charges)."""
+    detected, _ = analyze_charges(
+        charges,
+        min_occurrences=min_occurrences,
+        amount_tolerance=amount_tolerance,
+        interval_tolerance_days=interval_tolerance_days,
+    )
     return detected
+
+
+def detect_price_increases(
+    charges: list[ChargeRecord],
+    *,
+    min_occurrences: int = config.SUB_MIN_OCCURRENCES,
+    amount_tolerance: float = config.SUB_AMOUNT_TOLERANCE,
+    interval_tolerance_days: int = config.SUB_INTERVAL_TOLERANCE_DAYS,
+) -> list[PriceIncrease]:
+    """Identify price step-ups in recurring charges (see analyze_charges)."""
+    _, increases = analyze_charges(
+        charges,
+        min_occurrences=min_occurrences,
+        amount_tolerance=amount_tolerance,
+        interval_tolerance_days=interval_tolerance_days,
+    )
+    return increases
 
 
 def _parse_date(value: str) -> date:
@@ -180,3 +299,13 @@ def run_subscription_detection(
         )
 
     return detected
+
+
+def run_price_increase_detection(conn: sqlite3.Connection) -> list[PriceIncrease]:
+    """Detect price step-ups in the DB's recurring charges.
+
+    Returns the increases so the caller (the sync engine) can turn them into
+    action items. Pure read — persistence of the updated price happens via
+    :func:`run_subscription_detection`, which tracks the new amount.
+    """
+    return detect_price_increases(load_charges(conn))

@@ -62,6 +62,17 @@ SUB_AMOUNT_TOLERANCE = float(os.getenv("FMM_SUB_AMOUNT_TOLERANCE", "0.05"))
 # cadence before we stop treating the series as regular.
 SUB_INTERVAL_TOLERANCE_DAYS = int(os.getenv("FMM_SUB_INTERVAL_TOLERANCE_DAYS", "5"))
 
+# --- Price-increase detection ----------------------------------------------
+
+# A recurring charge's new price must exceed the old baseline by at least
+# max(MIN_ABS dollars, MIN_REL * old price) to raise a PRICE_INCREASE item.
+SUB_PRICE_INCREASE_MIN_ABS = float(os.getenv("FMM_SUB_PRICE_INCREASE_MIN_ABS", "0.50"))
+SUB_PRICE_INCREASE_MIN_REL = float(os.getenv("FMM_SUB_PRICE_INCREASE_MIN_REL", "0.03"))
+
+# How many charges must land at the new price before we call it a real change
+# (1 == alert on the first increased charge).
+SUB_PRICE_MIN_NEW_CHARGES = int(os.getenv("FMM_SUB_PRICE_MIN_NEW_CHARGES", "1"))
+
 # --- Household vigilance ---------------------------------------------------
 
 # A member's current-month spend above ``baseline * SPIKE_FACTOR`` is a spike.

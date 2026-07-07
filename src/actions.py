@@ -65,6 +65,11 @@ def _apply_approval(conn: sqlite3.Connection, item: sqlite3.Row) -> None:
     if item_type == "SUBSCRIPTION_CANCEL" and ref_table == "subscriptions" and ref_id:
         # Approving "Cancel?" means the user wants it gone.
         db.set_subscription_status(conn, ref_id, "CANCELLED")
+    elif item_type == "PRICE_INCREASE" and ref_table == "subscriptions" and ref_id:
+        # Approving "Accept the new price?" — if the merchant is tracked as a
+        # bill, update the bill so the cash-flow orchestrator plans with the
+        # new amount. item["amount"] carries the new price.
+        _update_tracked_bill_amount(conn, ref_id, item["amount"])
     # BILL_PAYMENT / SPENDING_ALERT approvals are acknowledgements; the bill
     # recurs next cycle and the spend is simply marked reviewed.
 
@@ -81,6 +86,22 @@ def _apply_denial(conn: sqlite3.Connection, item: sqlite3.Row) -> None:
         # subscription reviewed so it is not re-surfaced.
         db.set_subscription_status(conn, ref_id, "ACTIVE")
         _promote_subscription_to_bill(conn, ref_id)
+    # Denying a PRICE_INCREASE means "I don't accept this price" — the item is
+    # marked reviewed and the user can cancel via the subscription's own card.
+
+
+def _update_tracked_bill_amount(
+    conn: sqlite3.Connection, subscription_id: int, new_amount: float | None
+) -> None:
+    """Sync a tracked bill's amount after an accepted price increase."""
+    if new_amount is None:
+        return
+    sub = db.get_subscription(conn, subscription_id)
+    if sub is None:
+        return
+    bill = db.get_bill_by_merchant(conn, sub["merchant_hash"])
+    if bill is not None:
+        db.update_bill(conn, bill["id"], amount=new_amount)
 
 
 def _promote_subscription_to_bill(conn: sqlite3.Connection, subscription_id: int) -> None:
