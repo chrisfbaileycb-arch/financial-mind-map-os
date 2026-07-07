@@ -205,6 +205,23 @@ def migrate(conn: sqlite3.Connection | None = None) -> None:
 
         cur.execute(
             """
+            CREATE TABLE IF NOT EXISTS holdings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                account_hash TEXT NOT NULL,
+                symbol TEXT NOT NULL,
+                quantity REAL NOT NULL,
+                cost_basis REAL,
+                last_price REAL,
+                last_price_at TEXT,
+                label TEXT,
+                UNIQUE(account_hash, symbol),
+                FOREIGN KEY (account_hash) REFERENCES accounts(account_hash)
+            )
+            """
+        )
+
+        cur.execute(
+            """
             CREATE TABLE IF NOT EXISTS budgets (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 category TEXT NOT NULL UNIQUE,
@@ -692,11 +709,125 @@ def get_goal(conn: sqlite3.Connection, goal_id: int) -> sqlite3.Row | None:
     return conn.execute("SELECT * FROM goals WHERE id = ?", (goal_id,)).fetchone()
 
 
+# --- Holdings ---------------------------------------------------------------
+
+
+def upsert_holding(
+    conn: sqlite3.Connection,
+    account_hash: str,
+    symbol: str,
+    quantity: float,
+    cost_basis: float | None = None,
+    last_price: float | None = None,
+    label: str | None = None,
+) -> int:
+    """Insert or update a holding (unique per account + symbol)."""
+    conn.execute(
+        """
+        INSERT INTO holdings (account_hash, symbol, quantity, cost_basis, last_price, label)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(account_hash, symbol) DO UPDATE SET
+            quantity = excluded.quantity,
+            cost_basis = COALESCE(excluded.cost_basis, holdings.cost_basis),
+            last_price = COALESCE(excluded.last_price, holdings.last_price),
+            label = COALESCE(excluded.label, holdings.label)
+        """,
+        (account_hash, symbol.upper(), quantity, cost_basis, last_price, label),
+    )
+    conn.commit()
+    row = conn.execute(
+        "SELECT id FROM holdings WHERE account_hash = ? AND symbol = ?",
+        (account_hash, symbol.upper()),
+    ).fetchone()
+    return row["id"]
+
+
+def get_holdings(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    """All holdings joined with their account's name and bucket."""
+    return conn.execute(
+        """
+        SELECT h.*, a.name AS account_name, a.bucket_type
+        FROM holdings h LEFT JOIN accounts a ON a.account_hash = h.account_hash
+        ORDER BY h.symbol
+        """
+    ).fetchall()
+
+
+def get_holding(conn: sqlite3.Connection, holding_id: int) -> sqlite3.Row | None:
+    return conn.execute(
+        "SELECT * FROM holdings WHERE id = ?", (holding_id,)
+    ).fetchone()
+
+
+def update_holding(conn: sqlite3.Connection, holding_id: int, **fields) -> None:
+    """Update allowed holding fields."""
+    allowed = {"quantity", "cost_basis", "last_price", "last_price_at", "label"}
+    updates = {k: v for k, v in fields.items() if k in allowed and v is not None}
+    if not updates:
+        return
+    set_sql = ", ".join(f"{k} = ?" for k in updates)
+    conn.execute(
+        f"UPDATE holdings SET {set_sql} WHERE id = ?",
+        (*updates.values(), holding_id),
+    )
+    conn.commit()
+
+
+def delete_holding(conn: sqlite3.Connection, holding_id: int) -> None:
+    conn.execute("DELETE FROM holdings WHERE id = ?", (holding_id,))
+    conn.commit()
+
+
+def update_symbol_price(
+    conn: sqlite3.Connection, symbol: str, price: float, at: str
+) -> None:
+    """Mark every holding of ``symbol`` to the latest market price."""
+    conn.execute(
+        "UPDATE holdings SET last_price = ?, last_price_at = ? WHERE symbol = ?",
+        (price, at, symbol.upper()),
+    )
+    conn.commit()
+
+
+def holdings_value_by_account(conn: sqlite3.Connection) -> dict[str, float]:
+    """Market value of holdings grouped by account hash."""
+    rows = conn.execute(
+        """
+        SELECT account_hash,
+               ROUND(SUM(quantity * COALESCE(last_price, cost_basis, 0)), 2) AS total
+        FROM holdings
+        GROUP BY account_hash
+        """
+    ).fetchall()
+    return {r["account_hash"]: r["total"] for r in rows}
+
+
+def holdings_value_by_bucket(conn: sqlite3.Connection) -> dict[str, float]:
+    """Market value of holdings grouped by their account's tax bucket.
+
+    Uses the last market price, falling back to cost basis when no price has
+    been fetched yet.
+    """
+    rows = conn.execute(
+        """
+        SELECT COALESCE(a.bucket_type, 'UNBUCKETED') AS bucket,
+               ROUND(SUM(h.quantity * COALESCE(h.last_price, h.cost_basis, 0)), 2) AS total
+        FROM holdings h LEFT JOIN accounts a ON a.account_hash = h.account_hash
+        GROUP BY bucket
+        """
+    ).fetchall()
+    return {r["bucket"]: r["total"] for r in rows}
+
+
 # --- Net worth -------------------------------------------------------------
 
 
 def net_worth_summary(conn: sqlite3.Connection) -> dict:
-    """Current net worth as a total and a breakdown by tax bucket."""
+    """Current net worth as a total and a breakdown by tax bucket.
+
+    Combines account cash balances with the market value of investment
+    holdings (marked to the last fetched price, cost basis until then).
+    """
     rows = conn.execute(
         """
         SELECT COALESCE(bucket_type, 'UNBUCKETED') AS bucket,
@@ -706,6 +837,8 @@ def net_worth_summary(conn: sqlite3.Connection) -> dict:
         """
     ).fetchall()
     by_bucket = {r["bucket"]: r["total"] for r in rows}
+    for bucket, value in holdings_value_by_bucket(conn).items():
+        by_bucket[bucket] = round(by_bucket.get(bucket, 0.0) + value, 2)
     total = round(sum(by_bucket.values()), 2)
     return {"total": total, "by_bucket": by_bucket}
 

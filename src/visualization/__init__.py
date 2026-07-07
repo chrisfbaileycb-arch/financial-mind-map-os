@@ -199,6 +199,7 @@ def build_map_from_db(conn) -> FinancialMindMap:
 
     members = db.get_members(conn)
     accounts = db.get_accounts(conn)
+    holdings_value = db.holdings_value_by_account(conn)
     schedules = db.get_paycheck_schedules(conn)
     bills = db.get_bills(conn)
     subscriptions = db.get_subscriptions(conn)
@@ -229,7 +230,10 @@ def build_map_from_db(conn) -> FinancialMindMap:
                 account["name"] or "Account",
                 NodeType.ACCOUNT,
                 account["bucket_type"],
-                account["balance"] or 0.0,
+                # Cash balance plus the market value of any holdings, so the
+                # map's node sizes and bucket totals match the Net Worth view.
+                (account["balance"] or 0.0)
+                + holdings_value.get(account["account_hash"], 0.0),
             )
         )
         if account["member_hash"]:

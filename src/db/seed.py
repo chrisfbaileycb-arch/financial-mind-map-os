@@ -47,6 +47,7 @@ def _reset(conn: sqlite3.Connection) -> None:
         "sync_log",
         "budgets",
         "goals",
+        "holdings",
         "balance_snapshots",
     ):
         conn.execute(f"DELETE FROM {table}")
@@ -87,8 +88,20 @@ def seed_database(
         roth = db.hash_pii("roth-3456")
         db.upsert_account(conn, checking, "Checking", "BUCKET_TAXABLE", 2300.0, primary)
         db.upsert_account(conn, savings, "Savings", "BUCKET_TAXABLE", 8500.0, primary)
-        db.upsert_account(conn, retirement, "401(k)", "BUCKET_TAX", 45000.0, primary)
-        db.upsert_account(conn, roth, "Roth IRA", "BUCKET_FREE", 12000.0, partner)
+        # Investment accounts: cash balance + holdings (below) = same totals
+        # as before ($45,000 and $12,000), now marked to market.
+        db.upsert_account(conn, retirement, "401(k)", "BUCKET_TAX", 11250.0, primary)
+        db.upsert_account(conn, roth, "Roth IRA", "BUCKET_FREE", 4000.0, partner)
+
+        # --- Holdings ----------------------------------------------------
+        db.upsert_holding(
+            conn, retirement, "VTI", 150.0,
+            cost_basis=210.00, last_price=225.00, label="Total Market ETF",
+        )
+        db.upsert_holding(
+            conn, roth, "VOO", 20.0,
+            cost_basis=380.00, last_price=400.00, label="S&P 500 ETF",
+        )
 
         # --- Paycheck schedules ----------------------------------------
         db.insert_paycheck_schedule(conn, primary, pay_day_1=15, pay_day_2=30, pay_amount=2250.0)

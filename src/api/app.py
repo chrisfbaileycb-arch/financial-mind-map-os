@@ -30,6 +30,8 @@ from src.api.schemas import (
     CsvImportRequest,
     GoalCreate,
     GoalUpdate,
+    HoldingCreate,
+    HoldingUpdate,
     MemberCreate,
     PaycheckScheduleCreate,
     ResolveRequest,
@@ -157,6 +159,71 @@ def create_app() -> FastAPI:
         from src.cashflow import cashflow_timeline
 
         return cashflow_timeline(conn, _date.today(), horizon_days=horizon_days)
+
+    @app.get("/api/holdings")
+    def list_holdings(conn: sqlite3.Connection = Depends(get_db)) -> list[dict]:
+        out = []
+        for row in db.get_holdings(conn):
+            h = dict(row)
+            price = h["last_price"] or h["cost_basis"] or 0.0
+            h["market_value"] = round(h["quantity"] * price, 2)
+            if h["cost_basis"]:
+                h["cost_value"] = round(h["quantity"] * h["cost_basis"], 2)
+                h["gain"] = round(h["market_value"] - h["cost_value"], 2)
+            else:
+                h["cost_value"] = None
+                h["gain"] = None
+            out.append(h)
+        return out
+
+    @app.post("/api/holdings", status_code=201)
+    def create_holding(
+        body: HoldingCreate, conn: sqlite3.Connection = Depends(get_db)
+    ) -> dict:
+        holding_id = db.upsert_holding(
+            conn,
+            body.account_hash,
+            body.symbol,
+            body.quantity,
+            cost_basis=body.cost_basis,
+            last_price=body.last_price,
+            label=body.label,
+        )
+        return {"id": holding_id}
+
+    @app.patch("/api/holdings/{holding_id}")
+    def edit_holding(
+        holding_id: int,
+        body: HoldingUpdate,
+        conn: sqlite3.Connection = Depends(get_db),
+    ) -> dict:
+        if db.get_holding(conn, holding_id) is None:
+            raise HTTPException(status_code=404, detail="No such holding")
+        db.update_holding(conn, holding_id, **body.model_dump(exclude_none=True))
+        return dict(db.get_holding(conn, holding_id))
+
+    @app.delete("/api/holdings/{holding_id}", status_code=204)
+    def remove_holding(
+        holding_id: int, conn: sqlite3.Connection = Depends(get_db)
+    ) -> None:
+        if db.get_holding(conn, holding_id) is None:
+            raise HTTPException(status_code=404, detail="No such holding")
+        db.delete_holding(conn, holding_id)
+
+    @app.post("/api/holdings/refresh")
+    def refresh_prices(conn: sqlite3.Connection = Depends(get_db)) -> dict:
+        from src.investments.market_data import (
+            refresh_holding_prices,
+            resolve_provider,
+        )
+
+        provider, _ = resolve_provider()
+        updates = refresh_holding_prices(conn)
+        return {
+            "provider": provider,
+            "updated": len(updates),
+            "prices": {u.symbol: u.new_price for u in updates},
+        }
 
     @app.get("/api/networth")
     def networth(conn: sqlite3.Connection = Depends(get_db)) -> dict:

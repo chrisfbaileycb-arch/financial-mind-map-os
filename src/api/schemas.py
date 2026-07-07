@@ -31,6 +31,22 @@ class AccountCreate(BaseModel):
     member_id: str | None = None
 
 
+class HoldingCreate(BaseModel):
+    account_hash: str = Field(description="Hash of the account holding the position.")
+    symbol: str
+    quantity: float = Field(gt=0)
+    cost_basis: float | None = Field(default=None, description="Per-share cost basis.")
+    last_price: float | None = None
+    label: str | None = None
+
+
+class HoldingUpdate(BaseModel):
+    quantity: float | None = Field(default=None, gt=0)
+    cost_basis: float | None = None
+    last_price: float | None = None
+    label: str | None = None
+
+
 class BillCreate(BaseModel):
     merchant: str = Field(description="Raw merchant name; hashed before storage.")
     label: str

@@ -18,6 +18,7 @@ import schedule
 from src import config, db
 from src.cashflow import analyze_bills_from_db
 from src.categorize import run_auto_categorization
+from src.investments.market_data import refresh_holding_prices
 from src.sync.household import run_household_vigilance
 from src.sync.subscriptions import (
     run_price_increase_detection,
@@ -98,6 +99,37 @@ def detect_price_increases(conn: sqlite3.Connection, report_id: int) -> int:
         )
     print(f"  -> {len(increases)} price increase(s) detected.")
     return len(increases)
+
+
+def refresh_portfolio(conn: sqlite3.Connection, report_id: int) -> int:
+    """Mark holdings to market and flag outsized moves as action items.
+
+    A quiet no-op when no market-data provider is configured.
+    """
+    print(f"[{datetime.now().isoformat()}] Refreshing market prices...")
+    updates = refresh_holding_prices(conn)
+    alerts = 0
+    for u in updates:
+        if not u.old_price:
+            continue
+        pct = 100 * (u.new_price - u.old_price) / u.old_price
+        if abs(pct) < config.PORTFOLIO_MOVE_ALERT_PCT:
+            continue
+        direction = "up" if pct > 0 else "down"
+        db.add_action_item(
+            conn,
+            report_id,
+            item_type="PORTFOLIO_ALERT",
+            description=(
+                f"{u.symbol} moved {direction} {abs(pct):.1f}% since the last "
+                f"sync — ${u.old_price:.2f} to ${u.new_price:.2f}."
+            ),
+            amount=u.new_price,
+            urgency="HIGH" if abs(pct) >= 10 else "NORMAL",
+        )
+        alerts += 1
+    print(f"  -> {len(updates)} price(s) refreshed, {alerts} portfolio alert(s).")
+    return alerts
 
 
 def run_cashflow(conn: sqlite3.Connection, report_id: int, today: date) -> int:
@@ -228,11 +260,15 @@ def heartbeat(
         n_household = check_household_vigilance(conn, report_id, today)
         n_budget = check_budgets(conn, report_id, today)
         n_goals = advance_goals(conn, report_id, today)
+        n_portfolio = refresh_portfolio(conn, report_id)
 
         # Record a net-worth snapshot for the day (bookkeeping, not an alert).
         db.record_balance_snapshot(conn, today.isoformat())
 
-        total_items = n_subs + n_price + n_bills + n_household + n_budget + n_goals
+        total_items = (
+            n_subs + n_price + n_bills + n_household + n_budget + n_goals
+            + n_portfolio
+        )
         summary = (
             f"{total_items} action item(s): {n_bills} bill, "
             f"{n_subs} subscription, {n_price} price change, "
@@ -253,6 +289,7 @@ def heartbeat(
             "household": n_household,
             "budget": n_budget,
             "goals": n_goals,
+            "portfolio": n_portfolio,
             "total_items": total_items,
         }
     except Exception as exc:  # pragma: no cover - defensive logging path

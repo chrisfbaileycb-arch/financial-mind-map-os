@@ -73,6 +73,17 @@ SUB_PRICE_INCREASE_MIN_REL = float(os.getenv("FMM_SUB_PRICE_INCREASE_MIN_REL", "
 # (1 == alert on the first increased charge).
 SUB_PRICE_MIN_NEW_CHARGES = int(os.getenv("FMM_SUB_PRICE_MIN_NEW_CHARGES", "1"))
 
+# --- Market data / investments ----------------------------------------------
+
+# Quote provider: 'auto' picks whichever key is set; 'finnhub',
+# 'alphavantage', or 'none' force a choice. No key -> refresh is a no-op.
+MARKET_DATA_PROVIDER = os.getenv("FMM_MARKET_DATA_PROVIDER", "auto")
+FINNHUB_API_KEY = os.getenv("FMM_FINNHUB_API_KEY", "")
+ALPHAVANTAGE_API_KEY = os.getenv("FMM_ALPHAVANTAGE_API_KEY", "")
+
+# A held symbol moving at least this % between refreshes raises an alert.
+PORTFOLIO_MOVE_ALERT_PCT = float(os.getenv("FMM_PORTFOLIO_MOVE_ALERT_PCT", "5"))
+
 # --- Household vigilance ---------------------------------------------------
 
 # A member's current-month spend above ``baseline * SPIKE_FACTOR`` is a spike.
