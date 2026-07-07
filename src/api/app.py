@@ -16,11 +16,11 @@ from contextlib import asynccontextmanager
 from datetime import date
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from src import actions, db
+from src import actions, config, db
 from src.api.schemas import (
     AccountCreate,
     AccountUpdate,
@@ -65,19 +65,34 @@ def _report_payload(conn: sqlite3.Connection, report: sqlite3.Row | None) -> dic
 @asynccontextmanager
 async def _lifespan(_app: FastAPI):
     db.migrate()  # ensure the schema exists before serving requests
+    if config.PII_SALT == "default_local_salt_do_not_use_in_prod":
+        print(
+            "WARNING: PII_SALT is the built-in default. Set a unique random "
+            "value in .env before storing real data "
+            '(python -c "import secrets; print(secrets.token_hex(32))").'
+        )
     yield
 
 
 def create_app() -> FastAPI:
     app = FastAPI(title="Financial Mind-Map OS", version="0.1.0", lifespan=_lifespan)
 
-    # Local-first dev: the UI may run on a different port (Vite).
+    # Local-first dev: the UI may run on a different port (Vite). Origins
+    # are restricted to localhost by default; extend via FMM_CORS_ORIGINS.
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=config.CORS_ORIGINS,
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    @app.middleware("http")
+    async def security_headers(request, call_next):
+        response = await call_next(request)
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("Referrer-Policy", "same-origin")
+        return response
 
     # --- Health -------------------------------------------------------
     @app.get("/api/health")
@@ -130,7 +145,7 @@ def create_app() -> FastAPI:
 
     @app.get("/api/transactions")
     def list_transactions(
-        limit: int = 200,
+        limit: int = Query(default=200, ge=1, le=10000),
         q: str | None = None,
         category: str | None = None,
         conn: sqlite3.Connection = Depends(get_db),

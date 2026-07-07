@@ -136,6 +136,12 @@ export default function App() {
           onImported={() => { load(); setImportOpen(false) }}
         />
       )}
+
+      <footer className="app-footer muted">
+        Financial Mind-Map OS organizes your finances — it is not financial,
+        investment, tax, or legal advice. Detections and projections are
+        estimates; verify against official statements.
+      </footer>
     </div>
   )
 }
