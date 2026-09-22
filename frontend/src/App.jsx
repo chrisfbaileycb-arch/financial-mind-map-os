@@ -8,8 +8,10 @@ import SpendingView from './components/SpendingView.jsx'
 import ManageView from './components/ManageView.jsx'
 import NetWorthView from './components/NetWorthView.jsx'
 import CashFlowView from './components/CashFlowView.jsx'
+import PlanningView from './components/PlanningView.jsx'
 
 const VIEWS = [
+  { key: 'plan', label: 'Plan' },
   { key: 'map', label: 'Map' },
   { key: 'networth', label: 'Net Worth' },
   { key: 'cashflow', label: 'Cash Flow' },
@@ -19,7 +21,7 @@ const VIEWS = [
 ]
 
 export default function App() {
-  const [view, setView] = useState('map')
+  const [view, setView] = useState('plan')
   const [graph, setGraph] = useState(null)
   const [report, setReport] = useState(null)
   const [items, setItems] = useState([])
@@ -106,6 +108,8 @@ export default function App() {
       </header>
 
       {error && <div className="error-banner">{error}</div>}
+
+      {view === 'plan' && <PlanningView onNavigate={setView} onRefresh={load} />}
 
       {view === 'map' && (
         <div className="layout">

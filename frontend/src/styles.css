@@ -189,6 +189,40 @@ html, body, #root {
 
 .empty { text-align: center; padding: 24px 0; }
 
+/* Planning home: the overnight visual direction, grounded in live API data. */
+.planning-view { flex: 1; overflow-y: auto; background: #f7f8fc; color: #14213b; padding: 28px clamp(16px, 4vw, 60px) 56px; }
+.planning-hero { min-height: 340px; border-radius: 30px; background: radial-gradient(circle at 85% 22%, #314e9b 0, transparent 32%), linear-gradient(120deg, #111b39, #101f51 70%, #28346e); color: white; padding: clamp(28px, 5vw, 66px); display: flex; align-items: center; justify-content: space-between; gap: 28px; overflow: hidden; }
+.planning-hero-copy { max-width: 590px; position: relative; z-index: 1; }
+.planning-eyebrow { display: block; font-size: 11px; letter-spacing: .14em; font-weight: 800; color: #889ce1; }
+.planning-hero .planning-eyebrow { color: #a9bcff; }
+.planning-hero h1 { font-size: clamp(34px, 4.4vw, 64px); line-height: 1.05; letter-spacing: -.04em; margin: 16px 0; }
+.planning-hero p { font-size: 16px; line-height: 1.65; color: #d6def7; max-width: 520px; }
+.planning-hero-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 28px; }
+.planning-primary, .planning-secondary { border-radius: 12px; padding: 12px 20px; font-weight: 750; cursor: pointer; font-size: 14px; }
+.planning-primary { background: #ffdc77; color: #19213b; border: 1px solid #ffdc77; }
+.planning-secondary { background: transparent; color: inherit; border: 1px solid currentColor; }
+.planning-primary:disabled { opacity: .55; cursor: not-allowed; }
+.planning-companion { position: relative; width: 215px; min-width: 215px; height: 220px; display: grid; place-items: center; }
+.planning-companion p { position: absolute; bottom: -8px; font-size: 12px; font-weight: 700; white-space: nowrap; }
+.planning-face { width: 145px; height: 145px; border-radius: 47% 47% 43% 43%; background: linear-gradient(145deg, #fff5d2, #deb98b); box-shadow: inset -12px -17px 18px #b6896870, 0 22px 55px #0006; position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #303452; }
+.planning-ear { position: absolute; width: 38px; height: 50px; top: -16px; border-radius: 55% 55% 30% 30%; background: #ecd3a7; }
+.planning-ear.left { left: 10px; transform: rotate(-29deg); }.planning-ear.right { right: 10px; transform: rotate(29deg); }
+.planning-eyes { font-size: 29px; letter-spacing: 5px; line-height: 1; }.planning-smile { font-size: 40px; line-height: .7; }
+.planning-orbit { position: absolute; border-radius: 50%; padding: 8px 12px; background: #ffdc77; color: #243052; font-weight: 900; box-shadow: 0 7px 22px #0004; }
+.orbit-one { left: 0; top: 35px; }.orbit-two { right: 5px; top: 12px; background: #9bc4ff; }.orbit-three { right: -3px; bottom: 50px; background: #cfb0ff; }
+.planning-facts { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 14px; margin: -24px 18px 0; position: relative; }
+.planning-facts > div { padding: 20px; background: white; border-radius: 16px; box-shadow: 0 10px 35px #13234a13; display: flex; flex-direction: column; gap: 7px; }
+.planning-facts span, .planning-facts small { color: #65718b; font-size: 12px; }.planning-facts strong { font-size: clamp(19px,2vw,28px); }
+.planning-section { margin: 60px 0 30px; }.planning-section h2, .planning-form h2 { font-size: clamp(26px, 3vw, 38px); letter-spacing: -.035em; margin: 8px 0; }.planning-section > p, .planning-form > p { color: #647089; line-height: 1.55; }
+.journey-grid { display: grid; grid-template-columns: repeat(5, minmax(0,1fr)); gap: 14px; margin-top: 25px; }
+.journey-card { min-height: 166px; border: 1px solid #dfe4ef; border-radius: 18px; background: white; color: #1c2a45; padding: 19px; text-align: left; display: flex; flex-direction: column; gap: 8px; cursor: pointer; transition: transform .15s, box-shadow .15s; }
+.journey-card:hover { transform: translateY(-3px); box-shadow: 0 13px 30px #162a5518; }.journey-card.chosen { border: 2px solid #5067c5; background: #f0f2ff; }
+.journey-icon { font-size: 29px; color: #5870c9; }.journey-card strong { font-size: 16px; }.journey-card small { color: #6e7890; line-height: 1.35; }.journey-arrow { margin-top: auto; align-self: end; }
+.planning-workspace { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; margin: 34px 0; }.planning-form, .planning-result { border-radius: 22px; padding: clamp(22px, 3vw, 38px); }.planning-form { background: white; border: 1px solid #e2e6ef; }.planning-form label { display: flex; flex-direction: column; gap: 6px; margin: 16px 0; color: #394762; font-weight: 650; font-size: 13px; }.planning-form input { border: 1px solid #bfc9db; border-radius: 10px; padding: 12px; color: #1a2745; font-size: 16px; background: white; }
+.planning-result { background: #1a2650; color: white; }.planning-result .planning-big-number { display: block; font-size: clamp(40px, 5vw, 70px); letter-spacing: -.05em; margin-top: 24px; }.planning-result p { color: #d7e0ff; }.planning-note { border: 1px solid #6776ac; border-radius: 12px; padding: 15px; line-height: 1.55; color: #d7e0ff; font-size: 13px; margin: 24px 0; }.planning-success { color: #146d45 !important; font-weight: 650; }.planning-error { margin: 18px 0; padding: 14px; background: #fff0ef; border: 1px solid #b93e38; border-radius: 10px; color: #852019; }.planning-disclaimer { color: #68738b; font-size: 12px; }
+@media (max-width: 980px) { .planning-facts { grid-template-columns: repeat(2,1fr); }.journey-grid { grid-template-columns: repeat(3,1fr); }.topbar { flex-wrap: wrap; gap: 10px; }.nav { overflow-x: auto; max-width: 100%; } }
+@media (max-width: 650px) { .planning-hero { flex-direction: column; align-items: flex-start; }.planning-companion { align-self: center; }.planning-facts { margin: 12px 0 0; }.journey-grid { grid-template-columns: repeat(2,1fr); }.planning-workspace { grid-template-columns: 1fr; }.planning-view { padding: 14px; }.planning-facts > div { padding: 14px; } }
+
 /* Import modal */
 .modal-backdrop {
   position: fixed;
