@@ -1,0 +1,22 @@
+{
+  "name": "FinancialMindMap — AI Financial Advisor",
+  "short_name": "FinMindMap",
+  "description": "Chip 🦉, your AI financial advisor: plans, investments, crypto and goal maps — with a 3D mascot that snaps its fingers when your answer is ready.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#030712",
+  "theme_color": "#0B1B33",
+  "categories": ["finance", "productivity", "education"],
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ],
+  "shortcuts": [
+    { "name": "Ask Chip", "url": "./#advisor", "description": "Chat with your AI financial advisor" },
+    { "name": "Guides", "url": "./#guides", "description": "Money guides & playbooks" }
+  ]
+}

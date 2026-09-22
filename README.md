@@ -15,6 +15,16 @@ Approve / Deny / Snooze.
 
 ## Why it's different
 
+The default web app now opens on a visual planning home inspired by the separate
+React prototype under `prototypes/financial-mind-map-v2/`. It reads account
+balances, goals, cash-flow projections, and pending actions from this app's
+existing Python API. Its five life-event cards provide editable savings-goal
+estimates and can create a goal in the local SQLite database. The estimate is
+simple target ÷ monthly contribution; it does not model returns, taxes,
+inflation, or automatically transfer money. The existing map and operational
+screens remain available from the navigation. The prototype is retained as a
+design reference, not served as a second independent finance product.
+
 | | |
 |---|---|
 | 🧠 **Visual mind-map** | Your accounts, income, bills, and subscriptions as one interactive D3 node graph — see money flow, not just tables. |
